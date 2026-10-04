@@ -18,7 +18,7 @@ Reference: boyso/codex-reset
 - [x] Deep-link to Codex thread
 - [x] Windows sign-in registration primitive
 - [ ] Confirm actual Windows Codex app-server invocation against an installed current Codex build
-- [ ] Confirm CI build/test artifact on GitHub Actions
+- [x] Confirm CI build/test artifact on GitHub Actions
 - [ ] Secondary (weekly) usage visualization in tray
 - [ ] Reset-history UI
 - [ ] Credits/plan display
