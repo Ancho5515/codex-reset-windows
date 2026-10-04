@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexReset.Core", "src\CodexReset.Core\CodexReset.Core.csproj", "{1D48E20B-7B88-4B73-965D-E23982B51811}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexReset.Cli", "src\CodexReset.Cli\CodexReset.Cli.csproj", "{7CFA2D54-7E89-48ED-9277-4AA105D86D73}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodexReset.Core.Tests", "tests\CodexReset.Core.Tests\CodexReset.Core.Tests.csproj", "{3B46A466-09ED-4D0C-BFE0-6E381E32DA09}"
+EndProject
+Global
+ GlobalSection(SolutionConfigurationPlatforms) = preSolution
+  Debug|Any CPU = Debug|Any CPU
+  Release|Any CPU = Release|Any CPU
+ EndGlobalSection
+ GlobalSection(ProjectConfigurationPlatforms) = postSolution
+  {1D48E20B-7B88-4B73-965D-E23982B51811}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {1D48E20B-7B88-4B73-965D-E23982B51811}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {1D48E20B-7B88-4B73-965D-E23982B51811}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {1D48E20B-7B88-4B73-965D-E23982B51811}.Release|Any CPU.Build.0 = Release|Any CPU
+  {7CFA2D54-7E89-48ED-9277-4AA105D86D73}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {7CFA2D54-7E89-48ED-9277-4AA105D86D73}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {7CFA2D54-7E89-48ED-9277-4AA105D86D73}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {7CFA2D54-7E89-48ED-9277-4AA105D86D73}.Release|Any CPU.Build.0 = Release|Any CPU
+  {3B46A466-09ED-4D0C-BFE0-6E381E32DA09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+  {3B46A466-09ED-4D0C-BFE0-6E381E32DA09}.Debug|Any CPU.Build.0 = Debug|Any CPU
+  {3B46A466-09ED-4D0C-BFE0-6E381E32DA09}.Release|Any CPU.ActiveCfg = Release|Any CPU
+  {3B46A466-09ED-4D0C-BFE0-6E381E32DA09}.Release|Any CPU.Build.0 = Release|Any CPU
+ EndGlobalSection
+EndGlobal
