@@ -29,3 +29,18 @@ dotnet restore CodexReset.sln
 dotnet test CodexReset.sln -c Release
 dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true
 ```
+
+
+## Tray app
+
+Publish and run `CodexReset.App.exe`. The tray menu shows the current 5-hour usage, reset time, and conversations. Check the conversations that should be automatically resumed. Newly discovered conversations are never selected automatically.
+
+The app polls every 30 seconds. A selected conversation is continued only when the observed state changes from limited to available.
+
+## Start at sign-in
+
+The core includes per-user Windows Run-key registration. The packaged app will expose this setting in the tray UI.
+
+## Important compatibility note
+
+CodexReset uses Codex Desktop's local state and app-server protocol. These are not a stable public API. This Windows port deliberately keeps the protocol in an isolated core layer. Run `CodexReset.Cli.exe doctor` and `status` after a Codex update if automatic continuation stops working.
