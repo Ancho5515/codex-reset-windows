@@ -2,6 +2,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
 jobs:
   test:
     runs-on: windows-latest
@@ -11,3 +12,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - run: dotnet test CodexReset.sln --configuration Release
+      - run: dotnet publish src/CodexReset.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/app
+      - run: dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-reset-windows-x64
+          path: publish
