@@ -77,6 +77,8 @@ public sealed class MainForm : Form
         _autoContinue.CheckedChanged += (_, _) => SaveSettings();
         _search.TextChanged += (_, _) => RenderThreads();
         _limitedOnly.CheckedChanged += (_, _) => RenderThreads();
+        _threads.SizeChanged += (_, _) => ResizeThreadColumns();
+        _threads.FontChanged += (_, _) => ResizeThreadColumns();
         _threads.ItemChecked += (_, e) =>
         {
             if (_loadingThreads || e.Item.Tag is not CodexThread thread) return;
@@ -167,9 +169,9 @@ public sealed class MainForm : Form
         clear.Click += (_, _) => SetVisibleSelection(false);
         filters.Controls.Add(clear);
         conversations.Controls.Add(filters, 0, 0);
-        _threads.Columns.Add("对话", 390);
+        _threads.Columns.Add("对话标题", 330);
+        _threads.Columns.Add("最后对话时间", 170);
         _threads.Columns.Add("状态", 110);
-        _threads.Columns.Add("项目", 270);
         conversations.Controls.Add(_threads, 0, 1);
         conversations.Controls.Add(_selection, 0, 2);
         _conversationTab.Controls.Add(conversations);
@@ -318,9 +320,9 @@ public sealed class MainForm : Form
             foreach (var thread in _allThreads)
             {
                 if (_limitedOnly.Checked && !_limitedIds.Contains(thread.ThreadId)) continue;
+                var project = thread.ProjectName;
                 if (query.Length > 0 && !thread.Title.Contains(query, StringComparison.OrdinalIgnoreCase) &&
-                    !thread.Cwd.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
-                var project = string.IsNullOrWhiteSpace(thread.Cwd) ? "未关联项目" : thread.Cwd;
+                    !project.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!groups.TryGetValue(project, out var group))
                 {
                     group = new ListViewGroup(project, HorizontalAlignment.Left);
@@ -330,16 +332,27 @@ public sealed class MainForm : Form
                 var item = new ListViewItem(thread.Title, group)
                 {
                     Tag = thread, Checked = _settings.SelectedThreadIds.Contains(thread.ThreadId),
-                    ToolTipText = $"{thread.ThreadId}\n{project}"
+                    ToolTipText = $"{thread.Title}\n{thread.Cwd}"
                 };
+                item.SubItems.Add(thread.Timestamp > 0 ? DateTimeOffset.FromUnixTimeSeconds(thread.Timestamp).LocalDateTime.ToString("yyyy-MM-dd HH:mm") : "—");
                 item.SubItems.Add(_limitedIds.Contains(thread.ThreadId) ? "有限额记录" : "—");
-                item.SubItems.Add(project);
                 _threads.Items.Add(item);
             }
         }
         finally { _threads.EndUpdate(); _loadingThreads = false; }
+        ResizeThreadColumns();
         _conversationTab.Text = $"对话（{_allThreads.Count}）";
         UpdateSelection();
+    }
+
+    private void ResizeThreadColumns()
+    {
+        var scale = _threads.DeviceDpi / 96f;
+        var padding = (int)Math.Ceiling(20 * scale);
+        _threads.Columns[1].Width = TextRenderer.MeasureText("2000-12-31 23:59", _threads.Font).Width + padding;
+        _threads.Columns[2].Width = TextRenderer.MeasureText("有限额记录", _threads.Font).Width + padding;
+        _threads.Columns[0].Width = Math.Max((int)Math.Ceiling(180 * scale),
+            _threads.ClientSize.Width - _threads.Columns[1].Width - _threads.Columns[2].Width - SystemInformation.VerticalScrollBarWidth - 4);
     }
 
     private void UpdateSelection()

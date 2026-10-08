@@ -38,9 +38,40 @@ internal static class Program
                     window.Show();
                     ((System.Windows.Forms.Timer)typeof(MainForm).GetField("_timer", Private)!.GetValue(window)!).Stop();
                     Application.DoEvents();
-                    using var usage = JsonDocument.Parse("""
-                        {"rateLimits":{"primary":{"usedPercent":42},"secondary":{"usedPercent":68},"planType":"pro","credits":{"balance":"20"}}}
-                        """);
+                    var activity = new DateTimeOffset(2026, 10, 8, 3, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+                    var conversations = new List<CodexThread>
+                    {
+                        new("fixture-1", "核对校准迭代流程", @"D:\Projects\Calibration", null, activity) { ProjectName = "LED 校准" },
+                        new("fixture-2", "检查测量数据", @"D:\Projects\Calibration\tools", null, activity - 60) { ProjectName = "LED 校准" },
+                        new("fixture-3", "整理本周进展", @"D:\Projects\Notes", null, 0) { ProjectName = "工作记录" }
+                    };
+                    typeof(MainForm).GetField("_allThreads", Private)!.SetValue(window, conversations);
+                    typeof(MainForm).GetMethod("RenderThreads", Private)!.Invoke(window, null);
+                    var list = Find<ListView>(window, "Conversations");
+                    var expectedTime = DateTimeOffset.FromUnixTimeSeconds(activity).LocalDateTime.ToString("yyyy-MM-dd HH:mm");
+                    if (list.Columns.Count != 3 || list.Columns[1].Text != "最后对话时间" || list.Items[0].Text != conversations[0].Title ||
+                        list.Items[0].SubItems.Count != 3 || list.Items[0].SubItems[1].Text != expectedTime || list.Items[2].SubItems[1].Text != "—" ||
+                        list.Groups.Cast<ListViewGroup>().Any(group => group.Header.Contains(':')))
+                        throw new Exception("列表标题、最后对话时间或项目分组显示不正确。");
+                    foreach (ListViewItem item in list.Items)
+                        if (TextRenderer.MeasureText(item.SubItems[1].Text, list.Font).Width + 8 > list.Columns[1].Width)
+                            throw new Exception("最后对话时间列宽不足。");
+                    list.Items[0].Checked = true;
+                    var search = Find<TextBox>(window, "ConversationSearch");
+                    search.Text = "工作记录";
+                    if (list.Items.Count != 1) throw new Exception("项目名称搜索未生效。");
+                    search.Clear();
+                    if (list.Items.Count != 3 || list.CheckedItems.Count != 1) throw new Exception("搜索后未保留对话勾选。");
+                    using var usage = JsonDocument.Parse(JsonSerializer.Serialize(new
+                    {
+                        rateLimits = new
+                        {
+                            primary = new { usedPercent = 42, resetsAt = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds() },
+                            secondary = new { usedPercent = 68, resetsAt = DateTimeOffset.UtcNow.AddDays(3).ToUnixTimeSeconds() },
+                            planType = "pro",
+                            credits = new { balance = "20" }
+                        }
+                    }));
                     typeof(MainForm).GetMethod("ApplyUsage", Private)!.Invoke(window, [usage.RootElement]);
                     foreach (var name in new[] { "PrimaryReset", "SecondaryReset" })
                         Find<Label>(window, name).Text = "恢复：10-15 23:59 · 剩余 167 小时 59 分钟";
@@ -54,6 +85,7 @@ internal static class Program
                     if (args.Length > 0)
                     {
                         Directory.CreateDirectory(args[0]);
+                        typeof(MainForm).GetMethod("ApplyUsage", Private)!.Invoke(window, [usage.RootElement]);
                         var deadline = DateTime.UtcNow.AddMilliseconds(500);
                         while (DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
                         using var bitmap = new Bitmap(window.Width, window.Height);

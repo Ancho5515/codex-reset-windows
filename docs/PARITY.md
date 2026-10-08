@@ -14,6 +14,7 @@ Reference: boyso/codex-reset
 - [x] CLI doctor/status/threads/paused/continue
 - [x] Windows tray app
 - [x] Windows 主窗口：启动显示、关闭收起、托盘重新打开
+- [x] 对话列表：标题、最后对话时间和状态三列，按项目分组
 - [x] 30-second polling
 - [x] 5-hour usage/reset display
 - [x] Deep-link to Codex thread
@@ -25,6 +26,6 @@ Reference: boyso/codex-reset
 - [x] 主窗口显示账户计划和点数余额
 - [ ] Fully verified UI Automation text-entry fallback
 
-2026-10-08 本机验证通过：12 项核心测试、发布程序可见窗口检查、对话筛选与选择保存、窗口收起与重新显示、真实 Codex 连接、30 秒刷新，以及退出时释放本程序启动的 app-server。
+2026-10-08 本机验证通过：15 项核心测试、发布程序可见窗口检查、对话筛选与选择保存、四档布局缩放、真实对话标题与项目名称读取、窗口收起与重新显示、真实 Codex 连接、30 秒刷新，以及退出时释放本程序启动的 app-server。
 
 真实对话续作链路和额度恢复后的自动续作仍需单独验证。未勾选的界面功能也需要继续对齐。
