@@ -8,33 +8,23 @@ CodexReset 会监控本机 Codex 的用量状态。当某个已选中的对话�
 
 ## 当前状态
 
-Windows 工程已经在 GitHub Actions 的 `windows-latest` 环境中完成编译和测试，并成功执行托盘程序与 CLI 的 `win-x64` self-contained 发布。
+Windows 主窗口和 CLI 已完成 `win-x64` 单文件发布，现有核心测试 12 项全部通过。
 
-当前最主要的发布前验证项，是在真实 Windows Codex 环境中完成运行时兼容性验证。尤其需要在实际安装 Codex 的 Windows 机器上验证本地 app-server 的启动方式，以及以下 RPC 调用：
+2026-10-08 已在本机真实 Codex 环境中验证 app-server 启动、握手、用量读取、本地对话读取、主窗口每 30 秒刷新，以及退出时释放本程序启动的后台进程。
 
-```text
-initialize
-initialized
-account/rateLimits/read
-thread/resume
-turn/start
-thread/turns/list
-thread/unsubscribe
-```
-
-在完成上述本机验证前，不应把自动续作功能视为已经完成生产环境验证。
+向测试对话发送续作指令的完整链路，以及真实额度恢复后的自动续作，仍需单独验证。
 
 ## 功能
 
 - 自动解析 `CODEX_HOME` 并读取现有 Codex 本地状态。
-- 通过本地 app-server 读取 5 小时用量窗口和重置时间。
+- 通过本地 app-server 读取 5 小时和每周用量窗口、恢复时间。
 - 找出最近一次失败 turn 中包含 `usageLimitExceeded` 的对话。
 - 列出正常 Codex 对话，并过滤已归档线程和 sub-agent 线程。
 - 由用户明确选择哪些对话允许自动继续。
 - 检测账号从“用量受限”变为“重新可用”的状态变化。
 - 使用 `thread/resume` 恢复指定线程，再通过 `turn/start` 启动新的继续 turn。
 - 等待新 turn 执行结束后调用 `thread/unsubscribe`，释放线程占用。
-- 提供 Windows 系统托盘程序，每 30 秒轮询一次状态。
+- 提供 Windows 主窗口和系统托盘，每 30 秒轮询一次状态。
 - 提供诊断 CLI，用于验证本机协议兼容性。
 - 支持 `codex://threads/<thread-id>` 深链打开指定对话。
 - 包含 Windows 当前用户登录时自动启动的注册能力。
@@ -80,7 +70,7 @@ thread/unsubscribe
 src/
   CodexReset.Core/       Codex 状态、SQLite、RPC、额度恢复和自动续作逻辑
   CodexReset.Cli/        Windows 诊断工具和手动续作命令
-  CodexReset.App/        Windows 系统托盘程序
+  CodexReset.App/        Windows 主窗口与系统托盘
 tests/
   CodexReset.Core.Tests/ Core 行为与协议结构测试
 docs/
@@ -102,6 +92,23 @@ docs/
 GitHub Actions 生成的是 self-contained 发布包，因此发布后的可执行文件通常不需要用户额外安装 .NET Runtime。但仍然必须安装 Codex，因为 CodexReset 使用现有 Codex 安装、本地账号状态和 `CODEX_HOME`。
 
 ## 编译与测试
+
+### 一键生成 exe
+
+安装 .NET 8 SDK 或更新版本后，在仓库根目录执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+```
+
+脚本生成两个 Windows x64 单文件程序，包含 .NET Runtime 和 SQLite 原生依赖：
+
+- `publish\app\CodexReset.App.exe`：图形界面程序，可直接双击运行。
+- `publish\cli\CodexReset.Cli.exe`：诊断命令行工具。
+
+运行生成的 exe 无需额外安装 .NET Runtime，需要本机已有 Codex 安装。
+
+### 手动编译与测试
 
 在仓库根目录执行：
 
@@ -205,23 +212,42 @@ thread/unsubscribe
 
 第一次验证 Windows 写入链路时，建议使用可随时丢弃的测试对话。
 
-## 托盘程序
+## Windows 界面与托盘
 
-运行 `CodexReset.App.exe`。
+双击 `publish\app\CodexReset.App.exe` 后，会打开“CodexReset — 用量与对话”主窗口。窗口先显示，再连接本机 Codex；连接失败时可在运行日志中查看原因，并点击“刷新”重试。
 
-托盘程序会：
+主窗口提供：
 
 - 连接本地 Codex app-server
 - 每 30 秒轮询一次
-- 显示当前 5 小时用量百分比与重置时间
-- 列出本地对话
-- 标记因用量限制暂停的对话
+- 显示 5 小时和每周用量、恢复时间与剩余时间
+- 显示协议返回的账户计划和点数余额
+- 按项目分组列出本地对话，支持搜索和限额记录筛选
 - 持久化用户明确选择的对话
+- 设置自动续作开关和续作指令
+- 手动继续已勾选的对话
 - 检测“受限 → 恢复可用”的状态变化
 - 自动继续符合条件且已选中的对话
-- 通过 Codex 深链打开指定对话
+- 双击对话，通过 Codex 深链打开指定对话
+- 查看连接与续作运行日志
+
+关闭窗口或点击“收起到托盘”会保留后台监控。单击系统托盘中的 CodexReset 图标，或使用其右键菜单“打开界面”，可重新显示窗口。点击窗口或托盘菜单的“退出”，会停止监控并关闭本程序启动的 app-server。
+
+窗口支持显示器 DPI 缩放，标题、用量说明和操作栏会按内容计算高度。exe、窗口和托盘使用同一款深蓝与青绿色图标，资源位于 `src/CodexReset.App/Assets`，ICO 包含 16～256 像素的多个尺寸。
 
 新发现的对话 **不会** 自动加入自动续作列表。
+
+验证发布后的程序能在后台不可用时显示主窗口：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\verify-app-window.ps1
+```
+
+验证 100%、125%、150%、200% 布局缩放下的文字边界和图标加载，并生成示例界面预览：
+
+```powershell
+dotnet run --project tests/CodexReset.App.LayoutChecks -c Release -- artifacts/verification
+```
 
 ## Windows 本机验证流程
 
@@ -399,7 +425,7 @@ Codex 可能修改了内部 app-server schema。应记录完整请求、响应�
 
 详细功能和发布验证清单见 [docs/PARITY.md](docs/PARITY.md)。
 
-目前 GitHub Actions 的 Windows 编译 / 测试 / 发布流程已经通过。当前最主要的剩余 release gate，是在真实 Windows Codex 环境中验证运行时协议兼容性。
+目前本机只读协议链路和主窗口行为已验证。剩余验证包括实际对话续作链路与真实用量恢复后的自动续作。
 
 ## License
 
