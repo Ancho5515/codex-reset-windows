@@ -1,16 +1,16 @@
 # CodexReset for Windows
 
-A Windows port of [boyso/codex-reset](https://github.com/boyso/codex-reset), a companion for Codex Desktop that keeps selected conversations moving after a usage-limit pause.
+这是 [boyso/codex-reset](https://github.com/boyso/codex-reset) 的 Windows 版本。它是一个 Codex Desktop 辅助工具，用于在用量限制导致任务暂停后，让用户指定的对话在额度恢复时自动继续执行。
 
-CodexReset watches Codex's local usage state. When a selected conversation has stopped because of `usageLimitExceeded` and the account later becomes available again, it resumes that same thread and starts a new turn with a configurable continuation command (default: `继续`).
+CodexReset 会监控本机 Codex 的用量状态。当某个已选中的对话因为 `usageLimitExceeded` 停止，而账号随后重新恢复可用时，它会恢复同一个 thread，并启动一个新的 turn，发送可配置的继续指令（默认：`继续`）。
 
-> This project is unofficial. It uses Codex local state and the local app-server protocol, which are not guaranteed to remain stable across Codex releases.
+> 本项目为非官方工具。它依赖 Codex 本地状态和本地 app-server 协议，这些内部实现可能随着 Codex 版本更新而变化。
 
-## Status
+## 当前状态
 
-The Windows solution builds and tests successfully in GitHub Actions on `windows-latest`, including self-contained `win-x64` publishing for the tray app and CLI.
+Windows 工程已经在 GitHub Actions 的 `windows-latest` 环境中完成编译和测试，并成功执行托盘程序与 CLI 的 `win-x64` self-contained 发布。
 
-The remaining release gate is runtime verification against a current Codex installation on Windows. In particular, the local Codex app-server invocation and these RPC calls must be exercised on a real Windows machine:
+当前最主要的发布前验证项，是在真实 Windows Codex 环境中完成运行时兼容性验证。尤其需要在实际安装 Codex 的 Windows 机器上验证本地 app-server 的启动方式，以及以下 RPC 调用：
 
 ```text
 initialize
@@ -22,88 +22,88 @@ thread/turns/list
 thread/unsubscribe
 ```
 
-Do not treat automatic continuation as production-verified until that local validation succeeds.
+在完成上述本机验证前，不应把自动续作功能视为已经完成生产环境验证。
 
-## What it does
+## 功能
 
-- Resolves `CODEX_HOME` and reads the existing Codex local state.
-- Reads the 5-hour usage window and reset time through the local app-server.
-- Finds conversations whose latest failed turn contains `usageLimitExceeded`.
-- Lists normal Codex conversations while filtering archived and sub-agent threads.
-- Lets the user explicitly select which conversations may be automatically resumed.
-- Detects the transition from usage-limited to available.
-- Resumes selected threads with `thread/resume` and starts a new turn with `turn/start`.
-- Waits for the new turn to finish and calls `thread/unsubscribe` to release ownership.
-- Provides a Windows tray application with 30-second polling.
-- Provides a diagnostic CLI for local protocol verification.
-- Supports `codex://threads/<thread-id>` deep links.
-- Contains a Windows per-user start-at-sign-in registration primitive.
-- Never automatically selects newly discovered conversations.
+- 自动解析 `CODEX_HOME` 并读取现有 Codex 本地状态。
+- 通过本地 app-server 读取 5 小时用量窗口和重置时间。
+- 找出最近一次失败 turn 中包含 `usageLimitExceeded` 的对话。
+- 列出正常 Codex 对话，并过滤已归档线程和 sub-agent 线程。
+- 由用户明确选择哪些对话允许自动继续。
+- 检测账号从“用量受限”变为“重新可用”的状态变化。
+- 使用 `thread/resume` 恢复指定线程，再通过 `turn/start` 启动新的继续 turn。
+- 等待新 turn 执行结束后调用 `thread/unsubscribe`，释放线程占用。
+- 提供 Windows 系统托盘程序，每 30 秒轮询一次状态。
+- 提供诊断 CLI，用于验证本机协议兼容性。
+- 支持 `codex://threads/<thread-id>` 深链打开指定对话。
+- 包含 Windows 当前用户登录时自动启动的注册能力。
+- 新发现的对话永远不会被自动勾选。
 
-## How continuation works
+## 自动继续的工作原理
 
-CodexReset does **not** revive the exact interrupted turn. The behavior matches the reference project conceptually:
+CodexReset **不会恢复被中断的那个原始 turn 本身**。它的行为与源项目的核心机制一致：
 
 ```text
-existing task
+原始任务
     |
     v
-Codex turn stops with usageLimitExceeded
+Codex turn 因 usageLimitExceeded 停止
     |
     v
-CodexReset observes the account as limited
+CodexReset 检测到账户处于限额状态
     |
     v
-usage becomes available again
+额度恢复
     |
     v
-thread/resume(existing thread id)
+thread/resume(原 thread id)
     |
     v
 turn/start("继续")
     |
     v
-Codex receives the existing conversation context and continues the work
+Codex 读取原对话上下文并继续原任务
     |
     v
-wait until turn is no longer inProgress / queued / pending
+等待 turn 不再处于 inProgress / queued / pending
     |
     v
 thread/unsubscribe
 ```
 
-Only conversations selected by the user are eligible for automatic continuation.
+只有用户明确选中的对话才允许自动继续。
 
-## Repository layout
+## 仓库结构
 
 ```text
 src/
-  CodexReset.Core/       Codex state, SQLite, RPC, recovery and continuation logic
-  CodexReset.Cli/        Windows diagnostics and manual continuation
-  CodexReset.App/        Windows tray application
+  CodexReset.Core/       Codex 状态、SQLite、RPC、额度恢复和自动续作逻辑
+  CodexReset.Cli/        Windows 诊断工具和手动续作命令
+  CodexReset.App/        Windows 系统托盘程序
 tests/
-  CodexReset.Core.Tests/ Core behavior and protocol-shape tests
+  CodexReset.Core.Tests/ Core 行为与协议结构测试
 docs/
-  PARITY.md              Feature/release parity checklist
-  superpowers/specs/     Design specification
-  superpowers/plans/     Implementation plan
+  PARITY.md              功能对齐 / 发布验证清单
+  superpowers/specs/     设计规范
+  superpowers/plans/     实施计划
 .github/workflows/
-  ci.yml                 Windows build, test and publish workflow
+  ci.yml                 Windows 编译、测试和发布流程
 ```
 
-## Requirements
+## 环境要求
 
-For development:
+开发环境：
 
-- Windows 10 or Windows 11 x64
+- Windows 10 或 Windows 11 x64
 - .NET 8 SDK
-- A current Codex Desktop/CLI installation for runtime protocol validation
+- 如需验证真实运行协议，需要安装当前版本的 Codex Desktop / CLI
 
-The GitHub Actions release artifact is self-contained, so a published executable should not require a separately installed .NET runtime. Codex itself is still required because CodexReset uses the existing local Codex installation and account state.
+GitHub Actions 生成的是 self-contained 发布包，因此发布后的可执行文件通常不需要用户额外安装 .NET Runtime。但仍然必须安装 Codex，因为 CodexReset 使用现有 Codex 安装、本地账号状态和 `CODEX_HOME`。
 
-## Build and test
+## 编译与测试
 
-From the repository root:
+在仓库根目录执行：
 
 ```powershell
 dotnet restore CodexReset.sln
@@ -111,28 +111,28 @@ dotnet test CodexReset.sln -c Release
 dotnet build CodexReset.sln -c Release
 ```
 
-Publish the tray application:
+发布托盘程序：
 
 ```powershell
 dotnet publish src/CodexReset.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/app
 ```
 
-Publish the CLI:
+发布 CLI：
 
 ```powershell
 dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/cli
 ```
 
-GitHub Actions performs the tests and both publish operations on `windows-latest` and uploads the resulting `codex-reset-windows-x64` artifact.
+GitHub Actions 会在 `windows-latest` 上运行测试，并执行上述两个 publish 操作，最终上传 `codex-reset-windows-x64` artifact。
 
-## Codex home
+## Codex Home
 
-CodexReset resolves the Codex home in this order:
+CodexReset 按以下顺序确定 Codex Home：
 
-1. `CODEX_HOME`, when explicitly configured.
-2. `%USERPROFILE%\.codex`.
+1. 如果显式设置了 `CODEX_HOME`，优先使用它。
+2. 否则使用 `%USERPROFILE%\.codex`。
 
-Expected local data currently includes:
+当前预期的本地文件包括：
 
 ```text
 %CODEX_HOME%\state_5.sqlite
@@ -140,11 +140,11 @@ Expected local data currently includes:
 %CODEX_HOME%\config.toml
 ```
 
-The database schema is an internal Codex implementation detail and can change.
+这些数据库结构属于 Codex 内部实现，未来可能发生变化。
 
-## CLI
+## CLI 使用说明
 
-Run from source:
+从源码运行：
 
 ```powershell
 dotnet run --project src/CodexReset.Cli -- doctor
@@ -154,47 +154,47 @@ dotnet run --project src/CodexReset.Cli -- paused
 dotnet run --project src/CodexReset.Cli -- continue <thread-id> "继续"
 ```
 
-Or use the published `CodexReset.Cli.exe`.
+也可以直接使用发布后的 `CodexReset.Cli.exe`。
 
 ### `doctor`
 
-Read-only environment diagnostics. It reports:
+只读环境诊断命令，会输出：
 
-- resolved `CODEX_HOME`
-- whether `state_5.sqlite` exists
-- whether `thread_history_1.sqlite` exists
-- whether `remote_control` is enabled in `config.toml`
-- detected Codex CLI path, when found
+- 解析后的 `CODEX_HOME`
+- `state_5.sqlite` 是否存在
+- `thread_history_1.sqlite` 是否存在
+- `config.toml` 中是否启用了 `remote_control`
+- 如果能够检测到，则显示 Codex CLI 路径
 
-Run this first during Windows validation.
+Windows 本机验证时建议先运行这个命令。
 
 ### `status`
 
-Starts a private local Codex app-server, performs the Codex app-server handshake, and calls:
+启动一个独立的本地 Codex app-server，完成 Codex app-server 握手，然后调用：
 
 ```text
 account/rateLimits/read
 ```
 
-It prints the returned JSON. This is the first important Windows runtime compatibility test.
+命令会打印返回的 JSON。这是 Windows 运行时兼容性验证中最重要的第一步。
 
 ### `threads`
 
-Read-only. Lists normal, non-archived, non-subagent conversations from the local Codex state database.
+只读命令。从本地 Codex 状态数据库中列出正常、未归档、非 sub-agent 的对话。
 
 ### `paused`
 
-Read-only. Lists conversations with a latest failed turn containing `usageLimitExceeded`, including the recovery hint when available.
+只读命令。列出最近一次失败 turn 中包含 `usageLimitExceeded` 的对话；如果能够解析到恢复提示，也会一并显示。
 
 ### `continue`
 
-**Writes to the selected Codex conversation.**
+**该命令会向指定 Codex 对话写入新的 turn。**
 
 ```powershell
 CodexReset.Cli.exe continue <thread-id> "继续"
 ```
 
-The command performs approximately:
+它大致执行：
 
 ```text
 thread/resume
@@ -203,192 +203,204 @@ thread/turns/list
 thread/unsubscribe
 ```
 
-Use a disposable/test conversation for the first Windows protocol validation.
+第一次验证 Windows 写入链路时，建议使用可随时丢弃的测试对话。
 
-## Tray application
+## 托盘程序
 
-Run `CodexReset.App.exe`.
+运行 `CodexReset.App.exe`。
 
-The tray application:
+托盘程序会：
 
-- connects to the local Codex app-server
-- polls every 30 seconds
-- shows the current 5-hour usage percentage and reset time
-- lists local conversations
-- marks usage-limited conversations
-- persists explicitly selected conversations
-- detects a limited -> available transition
-- automatically continues eligible selected conversations
-- can open a conversation using the Codex deep link
+- 连接本地 Codex app-server
+- 每 30 秒轮询一次
+- 显示当前 5 小时用量百分比与重置时间
+- 列出本地对话
+- 标记因用量限制暂停的对话
+- 持久化用户明确选择的对话
+- 检测“受限 → 恢复可用”的状态变化
+- 自动继续符合条件且已选中的对话
+- 通过 Codex 深链打开指定对话
 
-Newly discovered conversations are **not** selected automatically.
+新发现的对话 **不会** 自动加入自动续作列表。
 
-## Local Windows validation procedure
+## Windows 本机验证流程
 
-After cloning this repository onto the Windows machine that runs Codex, use the following sequence.
+将仓库拉取到实际运行 Codex 的 Windows 电脑后，建议按以下顺序验证。
 
-### 1. Verify the repository itself
+### 1. 验证仓库本身
 
 ```powershell
 git pull
 dotnet test CodexReset.sln -c Release
 ```
 
-Expected result: all tests pass.
+预期结果：所有测试通过。
 
-### 2. Verify local Codex discovery
+### 2. 验证本机 Codex 环境发现
 
 ```powershell
 dotnet run --project src/CodexReset.Cli -- doctor
 ```
 
-Check that the resolved Codex home is the one used by your installed Codex and that the expected databases exist.
+检查解析出来的 Codex Home 是否与当前安装的 Codex 实际使用目录一致，并确认预期数据库存在。
 
-If the Codex home is elsewhere:
+如果 Codex Home 位于其他位置：
 
 ```powershell
 $env:CODEX_HOME = "D:\path\to\codex-home"
 dotnet run --project src/CodexReset.Cli -- doctor
 ```
 
-### 3. Verify read-only SQLite discovery
+### 3. 验证只读 SQLite 读取
 
 ```powershell
 dotnet run --project src/CodexReset.Cli -- threads
 dotnet run --project src/CodexReset.Cli -- paused
 ```
 
-Confirm that thread IDs/titles correspond to conversations visible in Codex.
+确认输出的 thread ID 和标题与 Codex Desktop 中实际存在的对话一致。
 
-### 4. Verify the Windows app-server
+### 4. 验证 Windows app-server
 
 ```powershell
 dotnet run --project src/CodexReset.Cli -- status
 ```
 
-Success criteria:
+成功标准：
 
-- the Codex app-server process starts
-- WebSocket connection succeeds
-- `initialize` succeeds
-- `initialized` is accepted
-- `account/rateLimits/read` returns a rate-limit object
+- Codex app-server 进程能够正常启动
+- WebSocket 连接成功
+- `initialize` 成功
+- `initialized` 被服务器接受
+- `account/rateLimits/read` 返回有效的 rate-limit 对象
 
-If this fails, capture the full exception/output. The likely compatibility points are Codex executable discovery, app-server command-line syntax, WebSocket transport, or RPC schema.
+如果失败，请保留完整异常与输出。最可能需要适配的位置包括：
 
-### 5. Verify continuation on a test conversation
+- Codex 可执行文件发现
+- app-server 命令行参数
+- WebSocket transport
+- JSON-RPC schema
 
-Create or choose a conversation where sending `继续` is harmless. Copy its thread ID from `threads`, then run:
+### 5. 在测试对话中验证续作链路
+
+创建或选择一个发送 `继续` 不会产生风险的测试对话。通过 `threads` 获取 thread ID，然后执行：
 
 ```powershell
 dotnet run --project src/CodexReset.Cli -- continue <thread-id> "继续"
 ```
 
-Success criteria:
+成功标准：
 
-- the same thread is resumed
-- a new user turn containing `继续` appears
-- Codex starts working from the existing context
-- after the turn finishes, the thread remains usable in Codex Desktop
+- 恢复的是同一个 thread
+- 对话中出现新的用户 turn：`继续`
+- Codex 能够读取此前上下文并继续原任务
+- 新 turn 执行结束后，Codex Desktop 仍然可以正常重新打开该对话
 
-Do not perform the first write-path test on an important conversation.
+第一次写入验证不要使用重要对话。
 
-### 6. Verify automatic recovery behavior
+### 6. 验证自动恢复行为
 
-After the protocol path is confirmed:
+确认协议链路没有问题后：
 
-1. Run the tray app.
-2. Select a disposable conversation.
-3. Keep Auto continue enabled.
-4. Observe a genuine usage-limit event.
-5. Leave CodexReset running across the reset.
-6. Confirm that the selected thread receives exactly one continuation turn after the account changes from limited to available.
+1. 运行托盘程序。
+2. 选择一个可丢弃的测试对话。
+3. 保持 Auto continue 开启。
+4. 等待一次真实的用量限制事件。
+5. 在额度恢复期间保持 CodexReset 运行。
+6. 确认账号从受限变为可用之后，已选中的 thread **只收到一次**继续 turn。
 
-Also confirm that unselected conversations are untouched.
+同时确认未选中的对话完全不受影响。
 
-## Instructions for Codex validating this repository locally
+## 给本机 Codex 的验证任务
 
-When using Codex itself to validate/fix this Windows port, give it this repository and ask it to work through the following release gate without stopping after the first error:
+如果准备直接使用本机 Codex 来验证和修复这个 Windows 版本，可以让它读取本仓库并执行下面的任务：
 
 ```text
-Validate CodexReset for Windows against the Codex installation on this machine.
+请在这台 Windows 机器上，基于实际安装的 Codex 环境完整验证 CodexReset for Windows。
 
-1. Read README.md, docs/PARITY.md, and the design/implementation docs.
-2. Run the full Release test suite.
-3. Run CodexReset.Cli doctor and verify CODEX_HOME/database/CLI discovery.
-4. Run threads and paused and compare the results with the actual local Codex state.
-5. Run status and diagnose/fix all Windows app-server discovery, process launch,
-   WebSocket handshake, or JSON-RPC compatibility problems.
-6. After the read-only path works, use a disposable conversation to validate
-   continue <thread-id> "继续".
-7. Verify thread/resume -> turn/start -> completion polling -> thread/unsubscribe.
-8. Build and run the tray application and verify 30-second polling, conversation
-   selection persistence, limited -> recovered detection, and duplicate suppression.
-9. Run all tests again after every fix and add regression tests for compatibility bugs.
-10. Update docs/PARITY.md only for behavior actually verified on this Windows machine.
-11. Do not claim completion while any release-gate item remains unverified.
+1. 阅读 README.md、docs/PARITY.md、设计文档和实施计划。
+2. 运行完整 Release 测试。
+3. 运行 CodexReset.Cli doctor，验证 CODEX_HOME、数据库和 Codex CLI 发现逻辑。
+4. 运行 threads 和 paused，并与本机真实 Codex 对话状态进行比对。
+5. 运行 status，持续诊断并修复 Windows 下 app-server 发现、进程启动、
+   WebSocket 握手或 JSON-RPC 协议兼容性问题，直到只读链路完全工作。
+6. 只读链路成功后，使用一个可丢弃测试对话验证：
+   continue <thread-id> "继续"。
+7. 验证完整链路：thread/resume -> turn/start -> turn 完成轮询 -> thread/unsubscribe。
+8. 编译并运行托盘程序，验证 30 秒轮询、对话选择持久化、limited -> recovered
+   状态检测和重复续作抑制。
+9. 每次修复后重新运行全部测试，并为发现的兼容性问题补充回归测试。
+10. 只有在这台 Windows 机器上实际验证成功的功能，才允许更新 docs/PARITY.md 为完成。
+11. 只要还有 release gate 未验证，就不要宣称项目已经完成。
 ```
 
-This is intentionally written so local Codex can use facts from the installed Windows environment instead of guessing platform-specific internals.
+这段任务说明的目的，是让本地 Codex 直接利用当前机器上真实安装环境中的事实，而不是猜测 Windows 平台内部实现。
 
-## Security and data handling
+## 安全与数据处理
 
-CodexReset is local-only by design:
+CodexReset 按本地工具设计：
 
-- It does not ask for or store an OpenAI password.
-- It does not maintain its own OpenAI authentication token.
-- It uses the existing Codex installation and `CODEX_HOME`.
-- Thread/database inspection is intended to be read-only.
-- Only the explicit `continue` command or enabled automatic continuation starts a new turn.
-- Newly discovered conversations are never automatically opted in.
+- 不要求用户输入或保存 OpenAI 密码。
+- 不维护独立的 OpenAI 身份验证 token。
+- 直接使用现有 Codex 安装及其 `CODEX_HOME`。
+- thread / 数据库检查原则上为只读操作。
+- 只有用户明确运行 `continue`，或者开启自动续作并选中对话后，才会启动新的 turn。
+- 新发现的对话不会自动加入自动续作范围。
 
-The project interacts with internal local Codex state/protocols. Review the code before running it if that is a concern.
+本项目会与 Codex 的内部本地状态和协议交互。如果对此有顾虑，请在运行前审查源码。
 
-## Troubleshooting
+## 故障排查
 
-### `doctor` cannot find the databases
+### `doctor` 找不到数据库
 
-Confirm which `CODEX_HOME` the installed Codex actually uses. Set `CODEX_HOME` explicitly before running CodexReset if necessary.
+确认当前安装的 Codex 实际使用哪个 `CODEX_HOME`。如果不是默认目录，请在运行 CodexReset 前显式设置 `CODEX_HOME`。
 
-### Codex CLI is not found
+### 找不到 Codex CLI
 
-Set `CODEX_CLI_PATH` to the actual Windows Codex executable/script path and rerun `doctor`/`status`.
+将 `CODEX_CLI_PATH` 设置为 Windows 上实际 Codex 可执行文件或脚本路径，然后重新运行 `doctor` / `status`。
 
-### `status` cannot start app-server
+### `status` 无法启动 app-server
 
-Run the installed Codex executable manually with its app-server help/options and compare them with the invocation in `AppServerManager`. Current code expects an app-server that can listen on a local WebSocket endpoint.
+手动运行当前安装的 Codex 可执行文件并查看 app-server 的 help / 参数，再与 `AppServerManager` 中当前启动方式进行对比。
 
-### `initialize` or another RPC fails
+当前实现预期 Codex app-server 能够监听一个本地 WebSocket 地址。
 
-Codex may have changed its internal app-server schema. Capture the complete request/response/error and update the isolated RPC adapter plus regression tests rather than adding UI-specific workarounds.
+### `initialize` 或其他 RPC 调用失败
 
-### Thread is resumed but Codex Desktop cannot reopen it
+Codex 可能修改了内部 app-server schema。应记录完整请求、响应和错误，然后修改隔离的 RPC 适配层，并增加回归测试，而不是在 UI 层添加临时绕过逻辑。
 
-Verify that completion monitoring reaches a terminal state and that `thread/unsubscribe` succeeds. Writer ownership must be released after the continuation turn.
+### thread 已经 resume，但 Codex Desktop 无法重新打开
 
-### Automatic continuation fires more than once
+确认 turn 完成监控能够进入最终状态，并且 `thread/unsubscribe` 调用成功。继续 turn 结束后必须释放 writer ownership。
 
-Treat this as a correctness bug. Check recovery-transition state and handled-thread persistence/duplicate suppression before using the app on important conversations.
+### 自动继续触发了多次
 
-## Compatibility philosophy
+这属于正确性问题。在重要对话上继续使用前，应检查：
 
-The reference macOS project relies on local Codex behavior rather than a stable public API. This Windows port therefore separates:
+- recovery transition 状态
+- handled thread 状态
+- 持久化逻辑
+- 重复续作抑制
 
-- local state discovery
+## 兼容性设计原则
+
+源 macOS 项目依赖的是 Codex 本地内部行为，而不是稳定公开 API。因此 Windows 版本将以下模块分离：
+
+- 本地状态发现
 - app-server transport
-- RPC message construction
-- recovery detection
-- continuation orchestration
+- RPC 消息构造
+- 额度恢复检测
+- 自动续作编排
 - Windows UI
 
-When Codex changes, prefer fixing the narrow compatibility layer and adding a regression test.
+当 Codex 内部实现发生变化时，应优先修复尽可能窄的兼容层，并增加对应回归测试。
 
-## Parity
+## 功能对齐状态
 
-See [docs/PARITY.md](docs/PARITY.md) for the detailed parity/release checklist.
+详细功能和发布验证清单见 [docs/PARITY.md](docs/PARITY.md)。
 
-The GitHub Actions Windows build/test/publish gate is currently passing. Runtime Windows Codex protocol verification remains the main outstanding release gate.
+目前 GitHub Actions 的 Windows 编译 / 测试 / 发布流程已经通过。当前最主要的剩余 release gate，是在真实 Windows Codex 环境中验证运行时协议兼容性。
 
 ## License
 
-The upstream project is MIT licensed. Preserve applicable upstream attribution and license terms when redistributing derived work.
+上游项目采用 MIT License。分发衍生版本时，请保留适用的上游署名和许可证要求。
