@@ -1,0 +1,77 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Resolve release tag
+        id: tag
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            "value=${{ inputs.tag }}" >> $env:GITHUB_OUTPUT
+          } else {
+            "value=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Test
+        run: dotnet test CodexReset.sln --configuration Release
+
+      - name: Publish tray app
+        run: dotnet publish src/CodexReset.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/app
+
+      - name: Publish CLI
+        run: dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/cli
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Compress-Archive -Path publish/app/* -DestinationPath release/CodexReset-Windows-${{ steps.tag.outputs.value }}.zip -Force
+          Compress-Archive -Path publish/cli/* -DestinationPath release/CodexReset-CLI-Windows-${{ steps.tag.outputs.value }}.zip -Force
+          Copy-Item publish/app/CodexReset.App.exe release/CodexReset.App.exe -Force
+          Copy-Item publish/cli/CodexReset.Cli.exe release/CodexReset.Cli.exe -Force
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          git fetch --tags
+          if (-not (git tag --list $env:TAG)) {
+            git tag $env:TAG $env:GITHUB_SHA
+            git push origin $env:TAG
+          }
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG --title "CodexReset for Windows $env:TAG" --generate-notes
+          }
+          gh release upload $env:TAG `
+            "release/CodexReset.App.exe" `
+            "release/CodexReset.Cli.exe" `
+            "release/CodexReset-Windows-$env:TAG.zip" `
+            "release/CodexReset-CLI-Windows-$env:TAG.zip" `
+            --clobber
