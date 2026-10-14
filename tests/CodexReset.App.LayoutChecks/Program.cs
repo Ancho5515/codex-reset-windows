@@ -11,6 +11,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--recovery") return RecoveryWindowCheck.Run(args[1], args.Contains("--auto-close"));
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         var fixture = Path.Combine(Path.GetTempPath(), "codex-reset-layout-" + Guid.NewGuid().ToString("N"));

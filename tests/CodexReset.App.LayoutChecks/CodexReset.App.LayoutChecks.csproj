@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodexReset.App\CodexReset.App.csproj" />
+    <Compile Include="..\CodexReset.Core.Tests\AppServerStub.cs" Link="AppServerStub.cs" />
   </ItemGroup>
 </Project>

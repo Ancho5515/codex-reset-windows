@@ -10,7 +10,7 @@ public sealed class MainForm : Form
     private readonly string _codexHome;
     private readonly string? _settingsPath;
     private AppSettings _settings;
-    private readonly AutoContinueMonitor _monitor = new();
+    private readonly AutoContinueMonitor _monitor;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _connectionLifetime;
     private AppServerManager? _manager;
@@ -57,6 +57,7 @@ public sealed class MainForm : Form
         _codexHome = codexHome;
         _settingsPath = settingsPath;
         _settings = SettingsStore.Load(settingsPath);
+        _monitor = new(LogContinuation);
         SuspendLayout();
         Text = "CodexReset — 用量与对话";
         Name = "CodexResetMainWindow";
@@ -249,7 +250,7 @@ public sealed class MainForm : Form
             request.CancelAfter(TimeSpan.FromSeconds(15));
             ApplyUsage(await _client.RequestAsync("account/rateLimits/read", ct: request.Token));
             var snapshot = _settings with { SelectedThreadIds = new HashSet<string>(_settings.SelectedThreadIds) };
-            var continued = await _monitor.TickAsync(_client, snapshot, request.Token);
+            var continued = await _monitor.TickAsync(_client, snapshot, _lifetime.Token);
             if (continued > 0)
             {
                 Log($"用量恢复，已继续 {continued} 个对话。");
@@ -392,25 +393,20 @@ public sealed class MainForm : Form
     {
         if (_busy || _client is null || _settings.SelectedThreadIds.Count == 0) return;
         SaveSettings();
-        var ids = _settings.SelectedThreadIds.ToArray();
-        var command = _settings.Command;
+        var snapshot = _settings with { SelectedThreadIds = new HashSet<string>(_settings.SelectedThreadIds) };
         SetBusy(true);
         try
         {
-            var engine = new AutoContinueEngine();
-            foreach (var id in ids)
-            {
-                using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-                request.CancelAfter(TimeSpan.FromSeconds(30));
-                var sent = await engine.ContinueAsync(_client, id, command, request.Token);
-                Log($"对话 {id}：{(sent ? "已发送续作指令" : "续作失败")}");
-            }
+            await _monitor.ContinueSelectedAsync(_client, snapshot, _lifetime.Token);
         }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception error) { if (!_lifetime.IsCancellationRequested) Log($"续作失败：{error.Message}"); }
         finally { if (!_lifetime.IsCancellationRequested) SetBusy(false); }
     }
 
     private void SetBusy(bool busy) { _busy = busy; _refresh.Enabled = !busy; UpdateSelection(); }
     private void Log(string message) => _log.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+    private void LogContinuation(string id, string message) => Log($"对话「{_allThreads.FirstOrDefault(thread => thread.ThreadId == id)?.Title ?? id}」({id})：{message}");
     private void OpenCodex(string uri)
     {
         try { Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true }); }

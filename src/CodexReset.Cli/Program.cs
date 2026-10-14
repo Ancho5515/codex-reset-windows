@@ -19,7 +19,7 @@ if(command=="status"){
 }
 if(command=="continue"){
  if(args.Length<2){Console.Error.WriteLine("Usage: codex-reset continue <thread-id> [command]");Environment.ExitCode=2;return;}
- var text=args.Length>2?string.Join(' ',args.Skip(2)):"继续";await using var mgr=new AppServerManager(home);var(client,_)=await mgr.StartOwnServerAsync();await using(client){var ok=await new AutoContinueEngine().ContinueAsync(client,args[1],text);Environment.ExitCode=ok?0:1;Console.WriteLine(ok?"Continue sent.":"Continue failed.");}return;
+ var text=args.Length>2?string.Join(' ',args.Skip(2)):"继续";await using var mgr=new AppServerManager(home);var(client,_)=await mgr.StartOwnServerAsync();await using(client){var engine=new AutoContinueEngine();var ok=await engine.ContinueAsync(client,args[1],text);Environment.ExitCode=ok?0:1;Console.WriteLine(ok?"Continue sent.":$"Continue failed: {engine.LastError}");}return;
 }
 Console.Error.WriteLine("Commands: doctor, status, threads, paused, continue <thread-id> [command]");
 Environment.ExitCode=2;
