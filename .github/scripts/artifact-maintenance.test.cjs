@@ -1,4 +1,12 @@
 const { test } = require('node:test');
+test('迁移重复包仅在成功默认分支已有相同源码版本时可提前清理',()=>{
+ const sha='a'.repeat(40);
+ const current=a(1,'codex-reset-windows-x64',{workflow_run:{id:1,head_branch:'main',head_sha:sha}});
+ const duplicate=a(2,'codex-reset-windows-x64',{created_at:'2026-10-25T13:00:00Z',workflow_run:{id:2,head_branch:'migration',head_sha:sha}});
+ const different=a(3,'codex-reset-windows-x64',{created_at:'2026-10-25T13:00:00Z',workflow_run:{id:3,head_branch:'feature',head_sha:'b'.repeat(40)}});
+ const p=plan([current,duplicate,different]);
+ assert.deepEqual(p.remove.map(a=>a.id),[2]);assert.deepEqual(p.keep.map(a=>a.id),[1,3]);
+});
 test('计划生成后出现的新消费者也会阻止删除',async()=>{
  const c=client([a(1,'core-test-results')]);let scans=0;
  c.github.paginate=async(method,args)=>{
