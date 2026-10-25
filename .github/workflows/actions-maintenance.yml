@@ -1,0 +1,59 @@
+name: Actions Artifact Maintenance
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/actions-maintenance.yml'
+      - '.github/scripts/artifact-maintenance*'
+  pull_request:
+    paths:
+      - '.github/workflows/actions-maintenance.yml'
+      - '.github/scripts/artifact-maintenance*'
+  workflow_run:
+    workflows: ['ci']
+    branches: [main]
+    types: [completed]
+  schedule:
+    - cron: '13 20 * * 6'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'audit 只审计；cleanup 清理超过一天且已被替代的历史产物'
+        type: choice
+        options: [audit, cleanup]
+        default: audit
+permissions:
+  contents: read
+concurrency:
+  group: artifact-maintenance-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  policy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: node --test .github/scripts/artifact-maintenance.test.cjs
+  maintain:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: policy-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: 审计、保护引用并清理冗余产物
+        uses: actions/github-script@v7
+        env:
+          MAINTENANCE_MODE: ${{ inputs.mode || 'cleanup' }}
+        with:
+          script: |
+            const { runMaintenance } = require('./.github/scripts/artifact-maintenance.cjs');
+            await runMaintenance({ github, context, core, mode: process.env.MAINTENANCE_MODE });
+
