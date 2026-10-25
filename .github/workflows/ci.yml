@@ -1,20 +1,62 @@
 name: ci
 on:
   push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '*.sln'
+      - '*.props'
+      - '*.targets'
+      - 'global.json'
+      - 'NuGet.Config'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '*.sln'
+      - '*.props'
+      - '*.targets'
+      - 'global.json'
+      - 'NuGet.Config'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
+    inputs:
+      package:
+        description: '生成临时自包含程序包（保留 1 天）；正式版本使用 release 工作流'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: '8.0.x'
       - run: dotnet test CodexReset.sln --configuration Release
-      - run: dotnet publish src/CodexReset.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/app
-      - run: dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/cli
-      - uses: actions/upload-artifact@v4
+      - name: 按需构建托盘程序
+        if: github.event_name == 'workflow_dispatch' && inputs.package
+        run: dotnet publish src/CodexReset.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/app
+      - name: 按需构建 CLI
+        if: github.event_name == 'workflow_dispatch' && inputs.package
+        run: dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/cli
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: github.event_name == 'workflow_dispatch' && inputs.package
         with:
           name: codex-reset-windows-x64
           path: publish
+          if-no-files-found: error
+          retention-days: 1
+

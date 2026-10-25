@@ -1,77 +1,78 @@
 name: release
-
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag, e.g. v0.1.0'
+        description: '正式版本标签，例如 v0.1.0；已有标签将检出该标签源码'
         required: true
         type: string
-
 permissions:
-  contents: write
-
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Resolve release tag
+          persist-credentials: false
+      - name: 校验并检出发布版本
         id: tag
         shell: pwsh
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
         run: |
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
-            "value=${{ inputs.tag }}" >> $env:GITHUB_OUTPUT
-          } else {
-            "value=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { $env:REF_TAG }
+          if ($tag -cnotmatch '^v[0-9][0-9A-Za-z._-]*$') { throw '版本标签必须以 v 和数字开头，且仅包含字母、数字、点、下划线和连字符。' }
+          git rev-parse --verify --quiet "refs/tags/$tag" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            git checkout --detach "refs/tags/$tag"
+            if ($LASTEXITCODE -ne 0) { throw '无法检出已存在的发布标签。' }
           }
-
+          "value=$tag" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '8.0.x'
       - name: Test
         run: dotnet test CodexReset.sln --configuration Release
-
       - name: Publish tray app
         run: dotnet publish src/CodexReset.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/app
-
       - name: Publish CLI
         run: dotnet publish src/CodexReset.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/cli
-
       - name: Package release
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
-          Compress-Archive -Path publish/app/* -DestinationPath release/CodexReset-Windows-${{ steps.tag.outputs.value }}.zip -Force
-          Compress-Archive -Path publish/cli/* -DestinationPath release/CodexReset-CLI-Windows-${{ steps.tag.outputs.value }}.zip -Force
+          Compress-Archive -Path publish/app/* -DestinationPath "release/CodexReset-Windows-$env:RELEASE_TAG.zip" -Force
+          Compress-Archive -Path publish/cli/* -DestinationPath "release/CodexReset-CLI-Windows-$env:RELEASE_TAG.zip" -Force
           Copy-Item publish/app/CodexReset.App.exe release/CodexReset.App.exe -Force
           Copy-Item publish/cli/CodexReset.Cli.exe release/CodexReset.Cli.exe -Force
-
-      - name: Create or update GitHub Release
+      - name: 发布到 GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.value }}
+          RELEASE_TAG: ${{ steps.tag.outputs.value }}
         run: |
-          git fetch --tags
-          if (-not (git tag --list $env:TAG)) {
-            git tag $env:TAG $env:GITHUB_SHA
-            git push origin $env:TAG
-          }
-          gh release view $env:TAG *> $null
+          $ErrorActionPreference = 'Stop'
+          $commit = (git rev-parse HEAD).Trim()
+          gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG --title "CodexReset for Windows $env:TAG" --generate-notes
+            gh release create $env:RELEASE_TAG --target $commit --title "CodexReset for Windows $env:RELEASE_TAG" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw '创建 Release 失败。' }
           }
-          gh release upload $env:TAG `
-            "release/CodexReset.App.exe" `
-            "release/CodexReset.Cli.exe" `
-            "release/CodexReset-Windows-$env:TAG.zip" `
-            "release/CodexReset-CLI-Windows-$env:TAG.zip" `
-            --clobber
+          $assets = @(Get-ChildItem release -File | ForEach-Object { $_.FullName })
+          if ($assets.Count -eq 0) { throw '发布文件为空。' }
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw '上传 Release 文件失败。' }
+
