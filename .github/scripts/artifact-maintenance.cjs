@@ -14,6 +14,7 @@ function planCleanup(artifacts, options = {}) {
   const { now = Date.now(), defaultBranch, repository, pointer, busy = false } = options;
   const items = artifacts.filter(a => !a.expired);
   const protectedIds = new Set();
+  let canonicalPackage;
   if (repository === 'stock-trend') {
     const referenced = items.find(a => a.id === Number(pointer?.artifactId));
     if (!referenced || referenced.name !== pointer?.artifactName ||
@@ -31,11 +32,16 @@ function planCleanup(artifacts, options = {}) {
       a.conclusion === 'success' && a.workflow_run?.head_branch === defaultBranch)
       .sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id);
     for (const a of newest.slice(0, group === 'package' ? 1 : 2)) protectedIds.add(a.id);
+    if (group === 'package') canonicalPackage = newest[0];
   }
   const keep = [], remove = [];
   for (const a of items) {
     const age = now - Date.parse(a.created_at);
-    const eligible = !busy && Number.isFinite(age) && age >= DAY &&
+    const sha = canonicalPackage?.workflow_run?.head_sha;
+    const redundantPackage = family(a.name) === 'package' && /^[0-9a-f]{40}$/.test(sha || '') &&
+      a.workflow_run?.head_sha === sha && a.workflow_run?.head_branch !== defaultBranch &&
+      a.name === canonicalPackage.name && a.conclusion === 'success';
+    const eligible = !busy && Number.isFinite(age) && (age >= DAY || redundantPackage) &&
       a.runStatus === 'completed' && family(a.name) && !protectedIds.has(a.id);
     (eligible ? remove : keep).push(a);
   }
