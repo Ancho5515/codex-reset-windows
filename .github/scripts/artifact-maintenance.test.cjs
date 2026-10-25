@@ -1,4 +1,24 @@
 const { test } = require('node:test');
+test('计划生成后出现的新消费者也会阻止删除',async()=>{
+ const c=client([a(1,'core-test-results')]);let scans=0;
+ c.github.paginate=async(method,args)=>{
+   if(method==='artifacts')return [a(1,'core-test-results')].filter(a=>!c.deleted.includes(a.id));
+   scans++;return scans>1?[{id:999,status:'in_progress'}]:[];
+ };
+ const r=await policy.runMaintenance({...c,mode:'cleanup'});
+ assert.equal(r.busy,true);assert.deepEqual(c.deleted,[]);
+});
+test('消费者从排队转运行时不能被状态分类查询漏掉',async()=>{
+ const c=client([a(1,'core-test-results')]);let consumer='queued';
+ c.github.paginate=async(method,args)=>{
+   if(method==='artifacts')return [a(1,'core-test-results')].filter(a=>!c.deleted.includes(a.id));
+   if(args.status==='in_progress'){consumer='in_progress';return [];}
+   if(args.status)return [];
+   return [{id:999,status:consumer}];
+ };
+ const r=await policy.runMaintenance({...c,mode:'cleanup'});
+ assert.equal(r.busy,true);assert.deepEqual(c.deleted,[]);
+});
 const assert = require('node:assert/strict');
 let policy = {};
 try { policy = require('./artifact-maintenance.cjs'); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
@@ -55,7 +75,7 @@ function client(artifacts, {busy=false, pointer=null}={}) {
  const api={
   rest:{repos:{get:async()=>({data:{default_branch:'main'}}),getContent:async()=>({data:{content:Buffer.from(JSON.stringify(pointer)).toString('base64')}})},
     actions:{listArtifactsForRepo:'artifacts',listWorkflowRunsForRepo:'runs',getWorkflowRun:async({run_id})=>({data:{status:'completed',conclusion:'success',path:'.github/workflows/ci.yml'}}),deleteArtifact:async({artifact_id})=>{deleted.push(artifact_id);artifacts=artifacts.filter(a=>a.id!==artifact_id);}}},
-  paginate:async(method,args)=>method==='artifacts'?artifacts:(busy&&args.status==='queued'?[{id:999}]:[])
+  paginate:async(method,args)=>method==='artifacts'?artifacts:(busy&&(!args.status||args.status==='queued')?[{id:999}]:[])
  };
  const core={info:()=>{},summary:{addHeading(){return this},addTable(){return this},addRaw(){return this},async write(){}}};
  return {github:api,context:{repo:{owner:'test',repo:pointer?'stock-trend':'pinyin-gloss'},ref:'refs/heads/main',runId:123},core,deleted};

@@ -39,6 +39,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw '无法检出已存在的发布标签。' }
           }
           "value=$tag" >> $env:GITHUB_OUTPUT
+          exit 0
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: '8.0.x'

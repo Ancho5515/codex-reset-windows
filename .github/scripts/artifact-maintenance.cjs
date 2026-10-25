@@ -74,17 +74,20 @@ async function runMaintenance({ github, context, core, mode = 'audit' }) {
     a.workflowPath = run.path;
   }
   // Do not prune while another producer or consumer is active.
-  const busyRuns = [];
-  for (const status of ['in_progress', 'queued', 'waiting', 'pending', 'requested']) {
-    const active = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { ...params, status, per_page: 100 });
-    busyRuns.push(...active.filter(r => String(r.id) !== String(context.runId)));
-  }
+  const activeRuns = async () => (await github.paginate(
+    github.rest.actions.listWorkflowRunsForRepo, { ...params, per_page: 100 }
+  )).filter(r => String(r.id) !== String(context.runId) && r.status !== 'completed');
+  let busy = (await activeRuns()).length > 0;
   let pointer;
   if (repo === 'stock-trend') {
     const response = await github.rest.repos.getContent({ ...params, path: 'data/market-data-snapshot.json', ref: defaultBranch });
     pointer = JSON.parse(Buffer.from(response.data.content, 'base64').toString('utf8'));
   }
-  const plan = planCleanup(artifacts, { defaultBranch, repository: repo, pointer, busy: busyRuns.length > 0 });
+  let plan = planCleanup(artifacts, { defaultBranch, repository: repo, pointer, busy });
+  if (mode === 'cleanup' && plan.remove.length && !busy) {
+    busy = (await activeRuns()).length > 0;
+    if (busy) plan = planCleanup(artifacts, { defaultBranch, repository: repo, pointer, busy });
+  }
   const describe = a => ({ id:a.id, name:a.name, bytes:a.size_in_bytes, workflow:a.workflowPath, run:a.workflow_run?.id });
   core.info('ARTIFACT_AUDIT ' + JSON.stringify({ bytesBefore:plan.bytesBefore, busy:plan.busy, keep:plan.keep.map(describe), candidates:plan.remove.map(describe) }));
   const result = await executePlan(plan, {
