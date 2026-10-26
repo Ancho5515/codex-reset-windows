@@ -18,6 +18,14 @@ internal sealed class AppServerStub : IAsyncDisposable
     public int SecondaryUsedPercent { get; set; } = 20;
     public HashSet<string> FailResumeOnce { get; } = [];
     public HashSet<string> FailStartOnce { get; } = [];
+    public HashSet<string> ActiveWriterThreads { get; } = [];
+    public HashSet<string> FailQueueOnce { get; } = [];
+    public HashSet<string> FailQueueListOnce { get; } = [];
+    public int QueuePageSize { get; set; } = 50;
+    public TimeSpan QueueDelay { get; set; }
+    public TaskCompletionSource QueueReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public Dictionary<string, List<string>> QueuedMessages { get; } = [];
+    public Dictionary<string, List<(string Id, JsonElement Input)>> QueueEntries { get; } = [];
     public TimeSpan StartDelay { get; set; }
     public Dictionary<string, TimeSpan> StartDelays { get; } = [];
     public TaskCompletionSource StartReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -68,6 +76,11 @@ internal sealed class AppServerStub : IAsyncDisposable
                 var parameters = request.TryGetProperty("params", out var p) ? p : default;
                 var threadId = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("threadId", out var t) ? t.GetString()! : "";
                 object result;
+                if (method == "thread/resume" && ActiveWriterThreads.Contains(threadId))
+                {
+                    await ReplyAsync(new { id = id.GetInt32(), error = new { code = -32600, message = $"thread {threadId} already has an active writer" } });
+                    continue;
+                }
                 if (method == "thread/resume" && FailResumeOnce.Remove(threadId) || method == "turn/start" && FailStartOnce.Remove(threadId))
                 {
                     await ReplyAsync(new { id = id.GetInt32(), error = new { code = -32000, message = "测试后台暂时不可用" } });
@@ -87,6 +100,36 @@ internal sealed class AppServerStub : IAsyncDisposable
                         StartReceived.TrySetResult();
                         await Task.Delay(StartDelays.GetValueOrDefault(threadId, StartDelay), _stop.Token);
                         result = new { turn = new { id = $"{threadId}-{messages.Count}", status = "completed" } };
+                        break;
+                    case "thread/queue/add":
+                        if (FailQueueOnce.Remove(threadId))
+                        {
+                            await ReplyAsync(new { id = id.GetInt32(), error = new { code = -32000, message = "测试队列暂时不可用" } });
+                            continue;
+                        }
+                        var messageId = parameters.GetProperty("clientUserMessageId").GetString()!;
+                        if (!Guid.TryParse(messageId, out _)) throw new InvalidOperationException("队列请求缺少稳定消息 ID。");
+                        var input = parameters.GetProperty("input").Clone();
+                        if (!QueuedMessages.TryGetValue(threadId, out var queued)) QueuedMessages[threadId] = queued = [];
+                        queued.Add(input[0].GetProperty("text").GetString()!);
+                        if (!QueueEntries.TryGetValue(threadId, out var entries)) QueueEntries[threadId] = entries = [];
+                        entries.Add((messageId, input));
+                        QueueReceived.TrySetResult();
+                        await Task.Delay(QueueDelay, _stop.Token);
+                        result = new { queuedSubmission = new { id = messageId, clientUserMessageId = messageId, input } };
+                        break;
+                    case "thread/queue/list":
+                        if (FailQueueListOnce.Remove(threadId))
+                        {
+                            await ReplyAsync(new { id = id.GetInt32(), error = new { code = -32000, message = "测试队列读取暂时不可用" } });
+                            continue;
+                        }
+                        var offset = parameters.TryGetProperty("cursor", out var cursor) && cursor.ValueKind == JsonValueKind.String
+                            ? int.Parse(cursor.GetString()!) : 0;
+                        var pending = QueueEntries.GetValueOrDefault(threadId, []);
+                        var page = pending.Skip(offset).Take(QueuePageSize)
+                            .Select(entry => new { id = entry.Id, clientUserMessageId = entry.Id, input = entry.Input }).ToArray();
+                        result = new { data = page, nextCursor = offset + page.Length < pending.Count ? (offset + page.Length).ToString() : null };
                         break;
                     case "thread/turns/list":
                         result = new { data = Messages.TryGetValue(threadId, out var turns) ? turns.Select((_, i) => new { id = $"{threadId}-{i + 1}", status = "completed" }).ToArray() : [], nextCursor = (string?)null };

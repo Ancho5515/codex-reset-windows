@@ -17,7 +17,7 @@ internal static class RecoveryWindowCheck
         Directory.CreateDirectory(fixture);
         Directory.CreateDirectory(output);
         var settingsPath = Path.Combine(fixture, "settings.json");
-        SettingsStore.Save(new(true, "继续", ["retry", "slow"]), settingsPath);
+        SettingsStore.Save(new(true, "继续", ["retry", "slow", "desktop"]), settingsPath);
         using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(fixture, "state_5.sqlite"), Pooling = false }.ToString()))
         {
             db.Open();
@@ -26,12 +26,15 @@ internal static class RecoveryWindowCheck
                 CREATE TABLE threads (id TEXT PRIMARY KEY,title TEXT,cwd TEXT,updated_at INTEGER,archived INTEGER,source TEXT);
                 INSERT INTO threads VALUES ('retry','首次失败后重试','D:\RecoveryCheck',1,0,'cli');
                 INSERT INTO threads VALUES ('slow','启动耗时16秒','D:\RecoveryCheck',1,0,'cli');
+                INSERT INTO threads VALUES ('desktop','桌面占用通过队列续作','D:\RecoveryCheck',1,0,'cli');
                 """;
             command.ExecuteNonQuery();
         }
         var server = new AppServerStub();
         server.FailResumeOnce.Add("retry");
         server.StartDelays["slow"] = TimeSpan.FromSeconds(16);
+        server.ActiveWriterThreads.Add("desktop");
+        var wakes = new List<string>();
         var client = new AppServerClient();
         var clientDisposed = false;
         var result = 1;
@@ -40,6 +43,8 @@ internal static class RecoveryWindowCheck
             client.ConnectAsync(server.Address).GetAwaiter().GetResult();
             client.InitializeAsync().GetAwaiter().GetResult();
             using var window = new MainForm(fixture, settingsPath) { Text = "CodexReset — 续作回归验证" };
+            typeof(MainForm).GetField("_monitor", Private)!.SetValue(window, new AutoContinueMonitor(
+                (id, message) => typeof(MainForm).GetMethod("LogContinuation", Private)!.Invoke(window, [id, message]), wakes.Add));
             // 后台启动器的 Hidden 仅用于隐藏控制台；再次显示确保验证窗口可实际查看。
             window.Shown += (_, _) => window.BeginInvoke(new Action(() => { window.Hide(); window.Show(); }));
             typeof(MainForm).GetField("_client", Private)!.SetValue(window, client);
@@ -53,10 +58,11 @@ internal static class RecoveryWindowCheck
                 if (checking) return;
                 if (DateTime.UtcNow >= ready) server.UsedPercent = 20;
                 if ((bool)typeof(MainForm).GetField("_busy", Private)!.GetValue(window)! ||
-                    !server.Messages.ContainsKey("retry") || !server.Messages.ContainsKey("slow"))
+                    !server.Messages.ContainsKey("retry") || !server.Messages.ContainsKey("slow") ||
+                    !server.QueuedMessages.ContainsKey("desktop"))
                 {
                     if (DateTime.UtcNow < deadline) return;
-                    File.WriteAllText(Path.Combine(output, "gui-result.txt"), "FAIL: 超时，两个测试对话未完成续作。\n" + log.Text);
+                    File.WriteAllText(Path.Combine(output, "gui-result.txt"), "FAIL: 超时，三个测试对话未完成续作。\n" + log.Text);
                     check.Stop();
                     return;
                 }
@@ -66,9 +72,11 @@ internal static class RecoveryWindowCheck
                 {
                     await (Task)typeof(MainForm).GetMethod("RefreshAsync", Private)!.Invoke(window, null)!;
                     if (server.Messages["retry"].Count != 1 || server.Messages["slow"].Count != 1 ||
+                        server.QueuedMessages["desktop"].Count != 1 || !wakes.SequenceEqual(["desktop"]) ||
+                        server.Messages.ContainsKey("desktop") || !log.Text.Contains("桌面队列") ||
                         !log.Text.Contains("测试后台暂时不可用") || !log.Text.Contains("首次失败后重试") || !log.Text.Contains("启动耗时16秒"))
                         throw new Exception("续作次数或界面失败详情不符合预期。");
-                    File.WriteAllText(Path.Combine(output, "gui-result.txt"), "PASS: 首次失败的对话后续成功；16秒启动不受共享15秒超时影响；两个对话各收到一次指令；失败详情显示在实际界面。\n" + log.Text);
+                    File.WriteAllText(Path.Combine(output, "gui-result.txt"), "PASS: 首次失败后重试成功；16秒启动独立计时；桌面写入占用转入队列并唤醒；三个对话各提交一次指令；实际界面显示各通道结果。\n" + log.Text);
                     result = 0;
                     window.Text = "CodexReset — 续作回归验证（已通过）";
                     Console.WriteLine("PASS: Windows 续作回归验证。");

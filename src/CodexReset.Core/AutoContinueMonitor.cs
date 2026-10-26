@@ -2,10 +2,10 @@ using System.Text.Json;
 
 namespace CodexReset.Core;
 
-public sealed class AutoContinueMonitor(Action<string, string>? log = null)
+public sealed class AutoContinueMonitor(Action<string, string>? log = null, Action<string>? wakeQueuedThread = null)
 {
     private readonly RecoveryDetector _detector = new();
-    private readonly AutoContinueEngine _engine = new();
+    private readonly AutoContinueEngine _engine = new(wakeQueuedThread);
     private readonly HashSet<string> _pending = [];
 
     public async Task<int> TickAsync(AppServerClient client, AppSettings settings, CancellationToken ct = default)
@@ -53,7 +53,7 @@ public sealed class AutoContinueMonitor(Action<string, string>? log = null)
             {
                 _pending.Remove(id);
                 count++;
-                log?.Invoke(id, "已发送续作指令。");
+                log?.Invoke(id, _engine.LastDeliveryMessage ?? "已发送续作指令。");
             }
             else log?.Invoke(id, $"续作未完成：{_engine.LastError}；保留待处理，下次刷新重试或核对原请求。");
         }
