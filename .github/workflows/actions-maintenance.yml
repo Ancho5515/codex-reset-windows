@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'audit 只审计；cleanup 清理超过一天且已被替代的历史产物'
+        description: 'audit 只审计；cleanup 删除已停用的 CI 安装包及过期临时产物'
         type: choice
         options: [audit, cleanup]
         default: audit
@@ -56,4 +56,5 @@ jobs:
           script: |
             const { runMaintenance } = require('./.github/scripts/artifact-maintenance.cjs');
             await runMaintenance({ github, context, core, mode: process.env.MAINTENANCE_MODE });
+
 
