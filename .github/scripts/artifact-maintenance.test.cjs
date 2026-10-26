@@ -1,12 +1,4 @@
 const { test } = require('node:test');
-test('迁移重复包仅在成功默认分支已有相同源码版本时可提前清理',()=>{
- const sha='a'.repeat(40);
- const current=a(1,'codex-reset-windows-x64',{workflow_run:{id:1,head_branch:'main',head_sha:sha}});
- const duplicate=a(2,'codex-reset-windows-x64',{created_at:'2026-10-25T13:00:00Z',workflow_run:{id:2,head_branch:'migration',head_sha:sha}});
- const different=a(3,'codex-reset-windows-x64',{created_at:'2026-10-25T13:00:00Z',workflow_run:{id:3,head_branch:'feature',head_sha:'b'.repeat(40)}});
- const p=plan([current,duplicate,different]);
- assert.deepEqual(p.remove.map(a=>a.id),[2]);assert.deepEqual(p.keep.map(a=>a.id),[1,3]);
-});
 test('计划生成后出现的新消费者也会阻止删除',async()=>{
  const c=client([a(1,'core-test-results')]);let scans=0;
  c.github.paginate=async(method,args)=>{
@@ -31,16 +23,19 @@ const assert = require('node:assert/strict');
 let policy = {};
 try { policy = require('./artifact-maintenance.cjs'); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 const now = Date.parse('2026-10-25T14:00:00Z');
-function a(id,name,extra={}) { return {id,name,size_in_bytes:100,created_at:'2026-10-20T00:00:00Z',expired:false,workflow_run:{id,head_branch:'main'},runStatus:'completed',conclusion:'success',...extra}; }
+function a(id,name,extra={}) { return {id,name,size_in_bytes:100,created_at:'2026-10-20T00:00:00Z',expired:false,workflow_run:{id,head_branch:'main'},runStatus:'completed',conclusion:'success',workflowPath:'.github/workflows/ci.yml',...extra}; }
 function plan(items,extra={}) { return policy.planCleanup(items,{now,defaultBranch:'main',repository:'pinyin-gloss',...extra}); }
 test('只删除已完成且超过一天的已知历史产物',()=>{
  const p=plan([a(1,'core-test-results'),a(2,'unknown-data'),a(3,'core-test-results',{created_at:'2026-10-25T13:00:00Z'}),a(4,'core-test-results',{runStatus:'in_progress'})]);
  assert.deepEqual(p.remove.map(x=>x.id),[1]);
 });
-test('临时包保留最新成功默认分支版本，失败或分支构建不能替代',()=>{
- const p=plan([a(1,'pinyin-gloss-win-x64'),a(2,'pinyin-gloss-win-x64',{created_at:'2026-10-21T00:00:00Z'}),a(3,'pinyin-gloss-win-x64',{created_at:'2026-10-22T00:00:00Z',conclusion:'failure'}),a(4,'pinyin-gloss-win-x64',{created_at:'2026-10-23T00:00:00Z',workflow_run:{id:4,head_branch:'feat/x'}})]);
- assert.deepEqual(p.keep.map(x=>x.id),[2]);
- assert.deepEqual(p.remove.map(x=>x.id),[1,3,4]);
+test('所有已完成 CI 安装包都删除，包括最新成功包和一天内的包',()=>{
+ const p=plan([a(1,'pinyin-gloss-win-x64'),a(2,'codex-reset-windows-x64',{created_at:'2026-10-25T13:00:00Z'}),a(3,'pinyin-gloss-win-x64',{conclusion:'failure'}),a(4,'pinyin-gloss-win-x64',{workflow_run:{id:4,head_branch:'feat/x'}})]);
+ assert.deepEqual(p.keep,[]);assert.deepEqual(p.remove.map(x=>x.id),[1,2,3,4]);
+});
+test('只清理 CI 来源安装包，手动发布和来源不明的文件保留',()=>{
+ const p=plan([a(1,'pinyin-gloss-win-x64',{workflowPath:'.github/workflows/release.yml'}),a(2,'codex-reset-windows-x64',{workflowPath:undefined}),a(3,'pinyin-gloss-win-x64',{runStatus:'in_progress'})]);
+ assert.deepEqual(p.remove,[]);assert.deepEqual(p.keep.map(x=>x.id),[1,2,3]);
 });
 test('显式行情和事件来源优先于最新排序',()=>{
  const items=[a(1,'stocktrend-market-data-1'),a(2,'stocktrend-market-data-2'),a(3,'stocktrend-market-data-3'),a(4,'daily-stock-report-8',{workflow_run:{id:8,head_branch:'main'}}),a(5,'daily-stock-report-9'),a(6,'daily-stock-report-10')];
@@ -100,3 +95,4 @@ test('错误分支不能执行清理',async()=>{
  const c=client([a(1,'core-test-results')]);c.context.ref='refs/heads/feature';
  await assert.rejects(()=>policy.runMaintenance({...c,mode:'cleanup'}),/default branch/);assert.deepEqual(c.deleted,[]);
 });
+

@@ -1,7 +1,5 @@
 name: release
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -76,4 +74,5 @@ jobs:
           if ($assets.Count -eq 0) { throw '发布文件为空。' }
           gh release upload $env:RELEASE_TAG @assets --clobber
           if ($LASTEXITCODE -ne 0) { throw '上传 Release 文件失败。' }
+
 
