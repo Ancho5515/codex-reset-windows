@@ -1,5 +1,4 @@
 using CodexReset.Core;
-using System.Text.Json;
 
 var home=CodexEnvironment.ResolveHome();
 var command=args.FirstOrDefault()?.ToLowerInvariant()??"doctor";
@@ -13,13 +12,10 @@ if(command=="doctor"){
 }
 var history=new ThreadHistory(home);
 if(command=="threads"){foreach(var t in history.AllThreads())Console.WriteLine($"{t.ThreadId}\t{t.Title}\t{t.Cwd}");return;}
-if(command=="paused"){foreach(var t in history.UsageLimitedThreads())Console.WriteLine($"{t.ThreadId}\t{t.Title}\t{t.RecoveryHint}");return;}
-if(command=="status"){
- await using var mgr=new AppServerManager(home);var (client,_)=await mgr.StartOwnServerAsync();await using(client){var x=await client.RequestAsync("account/rateLimits/read");Console.WriteLine(JsonSerializer.Serialize(x,new JsonSerializerOptions{WriteIndented=true}));}return;
-}
+if(command=="paused"){foreach(var t in history.PausedThreads())Console.WriteLine($"{t.ThreadId}\t{t.Title}");return;}
 if(command=="continue"){
  if(args.Length<2){Console.Error.WriteLine("Usage: codex-reset continue <thread-id> [command]");Environment.ExitCode=2;return;}
  var text=args.Length>2?string.Join(' ',args.Skip(2)):"继续";await using var mgr=new AppServerManager(home);var(client,_)=await mgr.StartOwnServerAsync();await using(client){var engine=new AutoContinueEngine();var ok=await engine.ContinueAsync(client,args[1],text);Environment.ExitCode=ok?0:1;Console.WriteLine(ok?"Continue sent.":$"Continue failed: {engine.LastError}");}return;
 }
-Console.Error.WriteLine("Commands: doctor, status, threads, paused, continue <thread-id> [command]");
+Console.Error.WriteLine("命令：doctor、threads、paused、continue <thread-id> [command]");
 Environment.ExitCode=2;

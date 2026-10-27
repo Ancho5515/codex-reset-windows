@@ -4,8 +4,13 @@ using System.Text;
 using System.Text.Json;
 namespace CodexReset.Core;
 public sealed class AppServerClient : IAsyncDisposable {
- readonly ClientWebSocket _ws=new(); readonly SemaphoreSlim _sendLock=new(1,1); readonly ConcurrentDictionary<int,TaskCompletionSource<JsonElement>> _pending=new(); int _nextId; CancellationTokenSource? _receiveCts;
- public async Task ConnectAsync(Uri uri,CancellationToken ct=default){await _ws.ConnectAsync(uri,ct);_receiveCts=CancellationTokenSource.CreateLinkedTokenSource(ct);_=ReceiveLoop(_receiveCts.Token);}
+ readonly string? _codexHome; readonly string? _credentialState;
+ public AppServerClient(string? codexHome=null){_codexHome=codexHome;_credentialState=codexHome is null?null:CodexAuthState.Read(codexHome);}
+ internal AppServerClient(string codexHome,string? credentialState){_codexHome=codexHome;_credentialState=credentialState;}
+ public bool IsAccountCurrent=>_codexHome is null||_credentialState is not null&&_credentialState==CodexAuthState.Read(_codexHome);
+ readonly ClientWebSocket _ws=new(); readonly SemaphoreSlim _sendLock=new(1,1); readonly ConcurrentDictionary<int,TaskCompletionSource<JsonElement>> _pending=new(); int _nextId; CancellationTokenSource? _receiveCts; Task? _receiving;
+ public bool IsConnected=>_ws.State==WebSocketState.Open&&_receiving is {IsCompleted:false};
+ public async Task ConnectAsync(Uri uri,CancellationToken ct=default){await _ws.ConnectAsync(uri,ct);_receiveCts=CancellationTokenSource.CreateLinkedTokenSource(ct);_receiving=ReceiveLoop(_receiveCts.Token);}
  public async Task InitializeAsync(CancellationToken ct=default){await RequestAsync("initialize",new {clientInfo=new{name="CodexReset",version="1.0.0"},capabilities=new{experimentalApi=true}},ct);await NotifyAsync("initialized",new{},ct);}
  public async Task<JsonElement> RequestAsync(string method,object? p=null,CancellationToken ct=default){var id=Interlocked.Increment(ref _nextId);var tcs=new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);_pending[id]=tcs;try{await Send(RpcMessage.Request(id,method,p),ct);using var reg=ct.Register(()=>tcs.TrySetCanceled(ct));return await tcs.Task;}finally{_pending.TryRemove(id,out _);}}
  public Task NotifyAsync(string method,object? p=null,CancellationToken ct=default)=>Send(RpcMessage.Notification(method,p),ct);

@@ -2,7 +2,6 @@ using CodexReset.App;
 using CodexReset.Core;
 using System.Drawing.Imaging;
 using System.Reflection;
-using System.Text.Json;
 
 internal static class Program
 {
@@ -63,19 +62,12 @@ internal static class Program
                     if (list.Items.Count != 1) throw new Exception("项目名称搜索未生效。");
                     search.Clear();
                     if (list.Items.Count != 3 || list.CheckedItems.Count != 1) throw new Exception("搜索后未保留对话勾选。");
-                    using var usage = JsonDocument.Parse(JsonSerializer.Serialize(new
-                    {
-                        rateLimits = new
-                        {
-                            primary = new { usedPercent = 42, resetsAt = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds() },
-                            secondary = new { usedPercent = 68, resetsAt = DateTimeOffset.UtcNow.AddDays(3).ToUnixTimeSeconds() },
-                            planType = "pro",
-                            credits = new { balance = "20" }
-                        }
-                    }));
-                    typeof(MainForm).GetMethod("ApplyUsage", Private)!.Invoke(window, [usage.RootElement]);
-                    foreach (var name in new[] { "PrimaryReset", "SecondaryReset" })
-                        Find<Label>(window, name).Text = "恢复：10-15 23:59 · 剩余 167 小时 59 分钟";
+                    typeof(MainForm).GetField("_limitedIds", Private)!.SetValue(window, new HashSet<string> { "fixture-1" });
+                    typeof(MainForm).GetMethod("RenderThreads", Private)!.Invoke(window, null);
+                    Find<CheckBox>(window, "LimitedOnly").Checked = true;
+                    if (list.Items.Count != 1 || list.Items[0].SubItems[2].Text != "等待续作")
+                        throw new Exception("待恢复对话筛选或状态显示不正确。");
+                    Find<CheckBox>(window, "LimitedOnly").Checked = false;
                     Find<Label>(window, "ConnectionStatus").Text = "连接或读取失败，查看运行日志";
                     window.PerformLayout();
                     AssertTextFits(window);
@@ -86,7 +78,7 @@ internal static class Program
                     if (args.Length > 0)
                     {
                         Directory.CreateDirectory(args[0]);
-                        typeof(MainForm).GetMethod("ApplyUsage", Private)!.Invoke(window, [usage.RootElement]);
+                        Find<Label>(window, "ConnectionStatus").Text = "已连接 · 对话续作";
                         var deadline = DateTime.UtcNow.AddMilliseconds(500);
                         while (DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(20); }
                         using var bitmap = new Bitmap(window.Width, window.Height);

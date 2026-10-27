@@ -14,9 +14,22 @@ internal sealed class AppServerStub : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _run;
     private WebSocket? _socket;
-    public int UsedPercent { get; set; } = 100;
-    public int SecondaryUsedPercent { get; set; } = 20;
+    public int AccountRequests { get; private set; }
+    public bool FailAccountRead { get; set; }
+    public object AccountResponse { get; set; } = new
+    {
+        account = new { type = "chatgpt", email = "synthetic@invalid", planType = "pro" }, requiresOpenaiAuth = true
+    };
+    public bool FailRateLimitRead { get; set; }
+    public TimeSpan RateLimitReadDelay { get; set; }
+    public TaskCompletionSource RateLimitReadReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public object RateLimitsResponse { get; set; } = new
+    {
+        rateLimits = new { primary = new { usedPercent = 0 }, secondary = new { usedPercent = 0 }, rateLimitReachedType = (string?)null }
+    };
     public HashSet<string> FailResumeOnce { get; } = [];
+    public TimeSpan ResumeDelay { get; set; }
+    public TaskCompletionSource ResumeReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public HashSet<string> FailStartOnce { get; } = [];
     public HashSet<string> ActiveWriterThreads { get; } = [];
     public HashSet<string> FailQueueOnce { get; } = [];
@@ -76,6 +89,11 @@ internal sealed class AppServerStub : IAsyncDisposable
                 var parameters = request.TryGetProperty("params", out var p) ? p : default;
                 var threadId = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("threadId", out var t) ? t.GetString()! : "";
                 object result;
+                if (method == "thread/resume")
+                {
+                    ResumeReceived.TrySetResult();
+                    await Task.Delay(ResumeDelay, _stop.Token);
+                }
                 if (method == "thread/resume" && ActiveWriterThreads.Contains(threadId))
                 {
                     await ReplyAsync(new { id = id.GetInt32(), error = new { code = -32600, message = $"thread {threadId} already has an active writer" } });
@@ -88,9 +106,20 @@ internal sealed class AppServerStub : IAsyncDisposable
                 }
                 switch (method)
                 {
-                    case "account/rateLimits/read":
-                        result = new { rateLimits = new { primary = new { usedPercent = UsedPercent }, secondary = new { usedPercent = SecondaryUsedPercent }, rateLimitReachedType = (string?)null } };
+                    case "account/read" when !FailAccountRead:
+                        AccountRequests++;
+                        result = AccountResponse;
                         break;
+                    case "account/rateLimits/read" when !FailRateLimitRead:
+                        AccountRequests++;
+                        result = RateLimitsResponse;
+                        RateLimitReadReceived.TrySetResult();
+                        await Task.Delay(RateLimitReadDelay, _stop.Token);
+                        break;
+                    case string name when name.StartsWith("account/", StringComparison.Ordinal):
+                        AccountRequests++;
+                        await ReplyAsync(new { id = id.GetInt32(), error = new { code = -32601, message = "路由后台不提供账号接口" } });
+                        continue;
                     case "thread/resume":
                         result = new { thread = new { id = threadId, turns = Array.Empty<object>() } };
                         break;
@@ -149,11 +178,16 @@ internal sealed class AppServerStub : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _stop.Cancel();
-        _socket?.Abort();
-        _listener.Stop();
+        StopConnection();
         await _run;
         _socket?.Dispose();
         _stop.Dispose();
+    }
+
+    public void StopConnection()
+    {
+        _stop.Cancel();
+        _socket?.Abort();
+        _listener.Stop();
     }
 }

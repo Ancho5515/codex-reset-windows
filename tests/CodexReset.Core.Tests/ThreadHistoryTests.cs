@@ -2,13 +2,40 @@ using CodexReset.Core;
 using Microsoft.Data.Sqlite;
 namespace CodexReset.Core.Tests;
 public class ThreadHistoryTests {
- [Fact] public void ExtractsRecoveryHint() {
-  var json="{\"message\":\"You've hit your usage limit. try again at 1:17 PM\"}";
-  Assert.Equal("1:17 PM",ThreadHistory.ExtractRecoveryHint(json));
+ [Fact] public void OnlyLatestQuotaFailureIsEligibleForContinuation() {
+  var home=Path.Combine(Path.GetTempPath(),"codex-reset-paused-"+Guid.NewGuid().ToString("N"));
+  Directory.CreateDirectory(home);
+  try {
+   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=Path.Combine(home,"state_5.sqlite"),Pooling=false}.ToString())) {
+    db.Open();using var command=db.CreateCommand();command.CommandText="""
+     CREATE TABLE threads (id TEXT PRIMARY KEY,title TEXT,cwd TEXT,updated_at INTEGER,archived INTEGER,source TEXT);
+     INSERT INTO threads VALUES ('waiting','等待恢复的对话','D:\\Test',100,0,'cli'),('finished','已经完成的对话','D:\\Test',100,0,'cli'),('running','正在运行的对话','D:\\Test',100,0,'cli'),('stopped','用户停止的对话','D:\\Test',100,0,'cli'),('archived','已归档的对话','D:\\Test',100,1,'cli'),('child','子代理对话','D:\\Test',100,0,'{"subagent":{}}');
+     """;command.ExecuteNonQuery();
+   }
+   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=Path.Combine(home,"thread_history_1.sqlite"),Pooling=false}.ToString())) {
+    db.Open();using var command=db.CreateCommand();command.CommandText="""
+     CREATE TABLE thread_turns (thread_id TEXT,turn_id TEXT,rollout_ordinal INTEGER,status TEXT,error_json TEXT,started_at INTEGER);
+     CREATE TABLE thread_items (thread_id TEXT,item_type TEXT,item_json TEXT,rollout_ordinal INTEGER);
+     INSERT INTO thread_turns VALUES
+       ('waiting','z-old',1,'failed','{"codexErrorInfo":"usageLimitExceeded"}',100),
+       ('waiting','a-current',2,'failed','{"codexErrorInfo":"usageLimitExceeded"}',101),
+       ('finished','old',1,'failed','{"codexErrorInfo":"usageLimitExceeded"}',100),
+       ('finished','new',2,'completed',NULL,101),
+       ('running','old',1,'failed','{"codexErrorInfo":"usageLimitExceeded"}',100),
+       ('running','new',2,'inProgress',NULL,101),
+       ('stopped','old',1,'failed','{"codexErrorInfo":"usageLimitExceeded"}',100),
+       ('stopped','new',2,'interrupted',NULL,101),
+       ('archived','old',1,'failed','{"codexErrorInfo":"usageLimitExceeded"}',100),
+       ('child','old',1,'failed','{"codexErrorInfo":"usageLimitExceeded"}',100);
+     """;command.ExecuteNonQuery();
+   }
+   var thread=Assert.Single(new ThreadHistory(home).PausedThreads());
+   Assert.Equal("waiting",thread.ThreadId);
+   Assert.Equal("a-current",thread.PausedTurnId);
+   Assert.Equal(101,thread.Timestamp);
+  } finally { SqliteConnection.ClearAllPools();Directory.Delete(home,true); }
  }
- [Fact] public void MeaninglessContinueTitleFallsBackToOriginalPrompt() {
-  Assert.Equal("Implement Windows reset tool",ThreadHistory.DisplayTitle("继续","Implement Windows reset tool"));
- }
+
 
  [Fact] public void UsesDesktopNameAndConversationActivityTime() {
   var threads=ReadThreads("""

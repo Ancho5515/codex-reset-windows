@@ -3,16 +3,17 @@ namespace CodexReset.Core;
 public sealed class AutoContinueEngine(Action<string>? wakeQueuedThread = null)
 {
  readonly HashSet<string> _handled=[];
- readonly Dictionary<string,(Task<JsonElement> Task,int Recovery,bool Queued)> _starting=[];
+ readonly Dictionary<string,(Task<JsonElement> Task,int Version,bool Queued)> _starting=[];
+ readonly Dictionary<string,int> _versions=[];
+ int _activeTurns;
+ public bool HasActiveContinuations=>Volatile.Read(ref _activeTurns)>0;
  readonly Action<string> _wakeQueuedThread=wakeQueuedThread??WindowsGuiFallback.WakeQueuedThread;
- int _recovery;
  public string? LastError { get; private set; }
  public string? LastDeliveryMessage { get; private set; }
  public bool AlreadyHandled(string id)=>_handled.Contains(id);
- public void BeginRecovery(){_recovery++;_handled.Clear();}
- public void BeginManualContinuation()=>_handled.Clear();
+ public void BeginContinuation(string threadId){_versions[threadId]=_versions.GetValueOrDefault(threadId)+1;_handled.Remove(threadId);}
 
- public async Task<bool> ContinueAsync(AppServerClient client,string threadId,string command,CancellationToken ct=default)
+ public async Task<bool> ContinueAsync(AppServerClient client,string threadId,string command,CancellationToken ct=default,Func<CancellationToken,Task<bool>>? canStart=null)
  {
   LastError=null;
   LastDeliveryMessage=null;
@@ -34,12 +35,18 @@ public sealed class AutoContinueEngine(Action<string>? wakeQueuedThread = null)
       // 已由桌面端加载的对话交给其持久队列，不能在另一个后台恢复同一写入者。
       queued=true;
      }
+     if(canStart is not null&&!await canStart(request.Token))
+     {
+      if(!queued)await client.RequestAsync("thread/unsubscribe",new{threadId},request.Token);
+      LastError="当前发送条件不再满足，已取消尚未发送的指令";
+      return false;
+     }
      stage=queued?"提交桌面队列":"发送续作指令";
      object parameters=queued
       ?new{threadId,clientUserMessageId=Guid.NewGuid().ToString(),input=new[]{new{type="text",text=command}}}
       :new{threadId,input=new[]{new{type="text",text=command}}};
      // 等待超时只停止等待，保留原请求及回执，避免后台已接受指令时重复发送。
-     start=(client.RequestAsync(queued?"thread/queue/add":"turn/start",parameters),_recovery,queued);
+     start=(client.RequestAsync(queued?"thread/queue/add":"turn/start",parameters),_versions.GetValueOrDefault(threadId),queued);
      _starting[threadId]=start;
     }
     else stage="确认续作指令";
@@ -48,7 +55,7 @@ public sealed class AutoContinueEngine(Action<string>? wakeQueuedThread = null)
     {
      var queueId=result.GetProperty("queuedSubmission").GetProperty("id").GetString();
      if(string.IsNullOrWhiteSpace(queueId))throw new JsonException("桌面队列未返回消息回执。");
-     if(start.Recovery!=_recovery)
+     if(start.Version!=_versions.GetValueOrDefault(threadId))
      {
       stage="核对桌面队列";
       var pending=false;
@@ -68,11 +75,12 @@ public sealed class AutoContinueEngine(Action<string>? wakeQueuedThread = null)
     else
     {
      var turnId=result.GetProperty("turn").GetProperty("id").GetString()!;
+     Interlocked.Increment(ref _activeTurns);
      _=ReleaseWhenDone(client,threadId,turnId);
     }
     _starting.Remove(threadId);
     // 旧轮次的迟到回执不能替代本次续作；尚未消费的队列消息可直接用于本次唤醒。
-    if(!start.Queued&&start.Recovery!=_recovery)continue;
+    if(!start.Queued&&start.Version!=_versions.GetValueOrDefault(threadId))continue;
     _handled.Add(threadId);
     LastDeliveryMessage=start.Queued?"续作指令已加入桌面队列，已请求唤醒原对话。":"已发送续作指令。";
     return true;
@@ -98,5 +106,5 @@ public sealed class AutoContinueEngine(Action<string>? wakeQueuedThread = null)
    return false;
   }
  }
- static async Task ReleaseWhenDone(AppServerClient c,string threadId,string turnId){using var timeout=new CancellationTokenSource(TimeSpan.FromHours(6));try{while(!timeout.IsCancellationRequested){var x=await c.RequestAsync("thread/turns/list",new{threadId},timeout.Token);if(x.TryGetProperty("data",out var data)){foreach(var t in data.EnumerateArray())if(t.GetProperty("id").GetString()==turnId){var s=t.GetProperty("status").GetString();if(s is not ("inProgress" or "queued" or "pending")){await c.RequestAsync("thread/unsubscribe",new{threadId},timeout.Token);return;}}}await Task.Delay(TimeSpan.FromSeconds(10),timeout.Token);}}catch{}}
+ async Task ReleaseWhenDone(AppServerClient c,string threadId,string turnId){using var timeout=new CancellationTokenSource(TimeSpan.FromHours(6));try{while(!timeout.IsCancellationRequested){var x=await c.RequestAsync("thread/turns/list",new{threadId},timeout.Token);if(x.TryGetProperty("data",out var data)){foreach(var t in data.EnumerateArray())if(t.GetProperty("id").GetString()==turnId){var s=t.GetProperty("status").GetString();if(s is not ("inProgress" or "queued" or "pending")){await c.RequestAsync("thread/unsubscribe",new{threadId},timeout.Token);return;}}}await Task.Delay(TimeSpan.FromSeconds(10),timeout.Token);}}catch{}finally{Interlocked.Decrement(ref _activeTurns);}}
 }

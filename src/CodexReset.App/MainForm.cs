@@ -1,7 +1,6 @@
 using CodexReset.Core;
 using System.Diagnostics;
 using System.Net.WebSockets;
-using System.Text.Json;
 
 namespace CodexReset.App;
 
@@ -20,17 +19,10 @@ public sealed class MainForm : Form
     private readonly Icon _applicationIcon;
     private readonly NotifyIcon _tray;
     private readonly Label _connection = new() { Name = "ConnectionStatus", Text = "正在连接…", AutoSize = true };
-    private readonly Label _account = new() { Name = "AccountStatus", Text = "正在读取账户用量…", AutoSize = true };
-    private readonly ProgressBar _primaryBar = new() { Name = "PrimaryUsage", Dock = DockStyle.Fill };
-    private readonly ProgressBar _secondaryBar = new() { Name = "SecondaryUsage", Dock = DockStyle.Fill };
-    private readonly Label _primaryText = new() { Name = "PrimaryText", Text = "等待用量数据", AutoSize = true };
-    private readonly Label _secondaryText = new() { Name = "SecondaryText", Text = "等待用量数据", AutoSize = true };
-    private readonly Label _primaryReset = new() { Name = "PrimaryReset", Text = "恢复时间：—", AutoSize = true };
-    private readonly Label _secondaryReset = new() { Name = "SecondaryReset", Text = "恢复时间：—", AutoSize = true };
-    private readonly CheckBox _autoContinue = new() { Name = "AutoContinue", Text = "用量恢复后自动继续", AutoSize = true };
+    private readonly CheckBox _autoContinue = new() { Name = "AutoContinue", Text = "限额中断后自动重试", AutoSize = true };
     private readonly TextBox _command = new() { Name = "ContinueCommand", Width = 180 };
     private readonly TextBox _search = new() { Name = "ConversationSearch", Width = 240, PlaceholderText = "搜索对话标题或项目" };
-    private readonly CheckBox _limitedOnly = new() { Name = "LimitedOnly", Text = "仅显示限额记录", AutoSize = true };
+    private readonly CheckBox _limitedOnly = new() { Name = "LimitedOnly", Text = "仅显示待恢复对话", AutoSize = true };
     private readonly ListView _threads = new()
     {
         Name = "Conversations", Dock = DockStyle.Fill, View = View.Details,
@@ -59,7 +51,7 @@ public sealed class MainForm : Form
         _settings = SettingsStore.Load(settingsPath);
         _monitor = new(LogContinuation);
         SuspendLayout();
-        Text = "CodexReset — 用量与对话";
+        Text = "CodexReset — 对话续作";
         Name = "CodexResetMainWindow";
         ClientSize = new Size(900, 700);
         MinimumSize = new Size(840, 640);
@@ -116,9 +108,9 @@ public sealed class MainForm : Form
 
     private void BuildLayout()
     {
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 7 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 5 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var row = 0; row < 4; row++) layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var row = 0; row < 2; row++) layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -132,15 +124,6 @@ public sealed class MainForm : Form
         header.Controls.Add(_connection, 1, 0);
         layout.Controls.Add(header, 0, 0);
 
-        var usage = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 1 };
-        usage.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        usage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        usage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        usage.Controls.Add(MakeUsageCard("5 小时用量", _primaryText, _primaryBar, _primaryReset), 0, 0);
-        usage.Controls.Add(MakeUsageCard("每周用量", _secondaryText, _secondaryBar, _secondaryReset), 1, 0);
-        layout.Controls.Add(usage, 0, 1);
-        layout.Controls.Add(_account, 0, 2);
-
         var options = new GroupBox { Text = "自动续作", Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         var optionRow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(8, 4, 8, 4) };
         _autoContinue.Margin = new Padding(3, 7, 18, 3);
@@ -151,7 +134,7 @@ public sealed class MainForm : Form
         save.Click += (_, _) => SaveSettings();
         optionRow.Controls.Add(save);
         options.Controls.Add(optionRow);
-        layout.Controls.Add(options, 0, 3);
+        layout.Controls.Add(options, 0, 1);
 
         var tabs = new TabControl { Name = "MainTabs", Dock = DockStyle.Fill };
         var conversations = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(8), ColumnCount = 1, RowCount = 3 };
@@ -180,7 +163,7 @@ public sealed class MainForm : Form
         var logTab = new TabPage("运行日志");
         logTab.Controls.Add(_log);
         tabs.TabPages.Add(logTab);
-        layout.Controls.Add(tabs, 0, 4);
+        layout.Controls.Add(tabs, 0, 2);
 
         var actions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         actions.Controls.Add(_refresh);
@@ -194,24 +177,9 @@ public sealed class MainForm : Form
         var exit = MakeButton("退出", "ExitApplication");
         exit.Click += (_, _) => ExitApplication();
         actions.Controls.Add(exit);
-        layout.Controls.Add(actions, 0, 5);
-        layout.Controls.Add(new Label { Text = "每 30 秒更新 · 双击对话在 Codex 中打开 · 关闭窗口后可从托盘重新打开", AutoSize = true, ForeColor = Color.DimGray }, 0, 6);
+        layout.Controls.Add(actions, 0, 3);
+        layout.Controls.Add(new Label { Text = "每 30 秒检查对话 · 双击对话在 Codex 中打开 · 关闭窗口后可从托盘重新打开", AutoSize = true, ForeColor = Color.DimGray }, 0, 4);
         Controls.Add(layout);
-    }
-
-    private static GroupBox MakeUsageCard(string title, Label value, ProgressBar bar, Label reset)
-    {
-        var card = new GroupBox { Text = title, Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12) };
-        var rows = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 3 };
-        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        rows.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        rows.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
-        rows.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        rows.Controls.Add(value, 0, 0);
-        rows.Controls.Add(bar, 0, 1);
-        rows.Controls.Add(reset, 0, 2);
-        card.Controls.Add(rows);
-        return card;
     }
 
     protected override async void OnShown(EventArgs e)
@@ -228,32 +196,21 @@ public sealed class MainForm : Form
         try
         {
             var history = new ThreadHistory(_codexHome);
-            var data = await Task.Run(() => (All: history.AllThreads(), Limited: history.UsageLimitedThreads(1000)), _lifetime.Token);
+            var data = await Task.Run(() => (All: history.AllThreads(), Paused: history.PausedThreads()), _lifetime.Token);
             if (_lifetime.IsCancellationRequested) return;
             _allThreads = data.All;
-            _limitedIds = data.Limited.Select(x => x.ThreadId).ToHashSet();
+            _limitedIds = data.Paused.Select(x => x.ThreadId).ToHashSet();
             RenderThreads();
 
-            if (_client is null)
-            {
-                _connection.Text = "正在连接 Codex…";
-                _manager = new AppServerManager(_codexHome);
-                _connectionLifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-                _connectionLifetime.CancelAfter(TimeSpan.FromSeconds(15));
-                var server = await _manager.StartOwnServerAsync(_connectionLifetime.Token);
-                _client = server.Client;
-                _connectionLifetime.CancelAfter(Timeout.InfiniteTimeSpan);
-                Log("已连接本机 Codex。");
-            }
+            if (!await EnsureCurrentClientAsync()) return;
 
-            using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-            request.CancelAfter(TimeSpan.FromSeconds(15));
-            ApplyUsage(await _client.RequestAsync("account/rateLimits/read", ct: request.Token));
-            var snapshot = _settings with { SelectedThreadIds = new HashSet<string>(_settings.SelectedThreadIds) };
-            var continued = await _monitor.TickAsync(_client, snapshot, _lifetime.Token);
+            var continued = await _monitor.TickAsync(_client!, () => _settings, () => history.PausedThreads(), _lifetime.Token);
+            if (!_client!.IsConnected) throw new WebSocketException("Codex 后台连接已关闭，下次刷新将重新连接。");
+            _connection.Text = $"已连接 · {DateTime.Now:HH:mm:ss} 更新";
+            _connection.ForeColor = Color.FromArgb(38, 112, 62);
             if (continued > 0)
             {
-                Log($"用量恢复，已继续 {continued} 个对话。");
+                Log($"自动续作已提交 {continued} 个对话。");
                 _tray.ShowBalloonTip(4000, "CodexReset", $"已继续 {continued} 个对话。", ToolTipIcon.Info);
             }
         }
@@ -269,43 +226,32 @@ public sealed class MainForm : Form
         finally { if (!_lifetime.IsCancellationRequested) SetBusy(false); }
     }
 
-    private void ApplyUsage(JsonElement root)
+    private async Task<bool> EnsureCurrentClientAsync()
     {
-        var limits = root.GetProperty("rateLimits");
-        UpdateUsageCard(limits, "primary", _primaryText, _primaryBar, _primaryReset);
-        UpdateUsageCard(limits, "secondary", _secondaryText, _secondaryBar, _secondaryReset);
-        var plan = limits.TryGetProperty("planType", out var type) ? type.ToString() : "未提供";
-        var balance = "未提供";
-        if (limits.TryGetProperty("credits", out var credits) && credits.ValueKind == JsonValueKind.Object &&
-            credits.TryGetProperty("balance", out var creditBalance) && creditBalance.ValueKind != JsonValueKind.Null)
-            balance = creditBalance.ToString();
-        _account.Text = $"计划：{plan}    点数余额：{balance}";
-        _connection.Text = $"已连接 · {DateTime.Now:HH:mm:ss} 更新";
-        _connection.ForeColor = Color.FromArgb(38, 112, 62);
-        _tray.Text = $"CodexReset · {_primaryText.Text}";
-    }
-
-    private static void UpdateUsageCard(JsonElement limits, string property, Label text, ProgressBar bar, Label reset)
-    {
-        if (!limits.TryGetProperty(property, out var window) || window.ValueKind != JsonValueKind.Object)
+        if (_client is { IsConnected: false }) await DisconnectAsync();
+        if (_client is not null && !_client.IsAccountCurrent)
         {
-            text.Text = "账户未提供此用量窗口";
-            bar.Value = 0;
-            reset.Text = "恢复时间：—";
-            return;
+            if (_monitor.HasActiveContinuations)
+            {
+                _connection.Text = "登录状态已变化，等待当前续作结束后重新连接";
+                _connection.ForeColor = Color.DarkOrange;
+                return false;
+            }
+            Log("检测到登录凭据或路由配置变化，重新连接本工具后台。");
+            await DisconnectAsync();
         }
-        var used = window.GetProperty("usedPercent").GetDouble();
-        bar.Value = Math.Clamp((int)Math.Round(used), 0, 100);
-        text.Text = $"已使用 {used:0.#}%";
-        if (window.TryGetProperty("resetsAt", out var time) && time.ValueKind == JsonValueKind.Number)
+        if (_client is null)
         {
-            var at = DateTimeOffset.FromUnixTimeSeconds(time.GetInt64()).LocalDateTime;
-            var remaining = at - DateTime.Now;
-            reset.Text = remaining > TimeSpan.Zero
-                ? $"恢复：{at:MM-dd HH:mm} · 剩余 {(int)remaining.TotalHours} 小时 {remaining.Minutes} 分钟"
-                : $"恢复时间：{at:MM-dd HH:mm}";
+            _connection.Text = "正在连接 Codex…";
+            _manager = new AppServerManager(_codexHome);
+            _connectionLifetime = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            _connectionLifetime.CancelAfter(TimeSpan.FromSeconds(15));
+            var server = await _manager.StartOwnServerAsync(_connectionLifetime.Token);
+            _client = server.Client;
+            _connectionLifetime.CancelAfter(Timeout.InfiniteTimeSpan);
+            Log("已连接本机 Codex。");
         }
-        else reset.Text = "恢复时间：未提供";
+        return true;
     }
 
     private void RenderThreads()
@@ -336,7 +282,7 @@ public sealed class MainForm : Form
                     ToolTipText = $"{thread.Title}\n{thread.Cwd}"
                 };
                 item.SubItems.Add(thread.Timestamp > 0 ? DateTimeOffset.FromUnixTimeSeconds(thread.Timestamp).LocalDateTime.ToString("yyyy-MM-dd HH:mm") : "—");
-                item.SubItems.Add(_limitedIds.Contains(thread.ThreadId) ? "有限额记录" : "—");
+                item.SubItems.Add(_limitedIds.Contains(thread.ThreadId) ? "等待续作" : "—");
                 _threads.Items.Add(item);
             }
         }
@@ -351,7 +297,7 @@ public sealed class MainForm : Form
         var scale = _threads.DeviceDpi / 96f;
         var padding = (int)Math.Ceiling(20 * scale);
         _threads.Columns[1].Width = TextRenderer.MeasureText("2000-12-31 23:59", _threads.Font).Width + padding;
-        _threads.Columns[2].Width = TextRenderer.MeasureText("有限额记录", _threads.Font).Width + padding;
+        _threads.Columns[2].Width = TextRenderer.MeasureText("等待续作", _threads.Font).Width + padding;
         _threads.Columns[0].Width = Math.Max((int)Math.Ceiling(180 * scale),
             _threads.ClientSize.Width - _threads.Columns[1].Width - _threads.Columns[2].Width - SystemInformation.VerticalScrollBarWidth - 4);
     }
@@ -393,14 +339,26 @@ public sealed class MainForm : Form
     {
         if (_busy || _client is null || _settings.SelectedThreadIds.Count == 0) return;
         SaveSettings();
-        var snapshot = _settings with { SelectedThreadIds = new HashSet<string>(_settings.SelectedThreadIds) };
         SetBusy(true);
         try
         {
-            await _monitor.ContinueSelectedAsync(_client, snapshot, _lifetime.Token);
+            if (!await EnsureCurrentClientAsync()) return;
+            var history = new ThreadHistory(_codexHome);
+            await _monitor.ContinueSelectedAsync(_client!, () => _settings, () => history.PausedThreads(), _lifetime.Token);
+            if (!_client!.IsConnected) throw new WebSocketException("Codex 后台连接已关闭，下次刷新将重新连接。");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception error) { if (!_lifetime.IsCancellationRequested) Log($"续作失败：{error.Message}"); }
+        catch (Exception error)
+        {
+            if (_lifetime.IsCancellationRequested) return;
+            Log($"续作失败：{error.Message}");
+            if (_client is { IsConnected: false })
+            {
+                _connection.Text = "连接已断开，点击刷新重试";
+                _connection.ForeColor = Color.Firebrick;
+                await DisconnectAsync();
+            }
+        }
         finally { if (!_lifetime.IsCancellationRequested) SetBusy(false); }
     }
 

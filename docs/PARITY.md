@@ -1,31 +1,22 @@
-# Parity checklist
+# 功能核对
 
-Reference: boyso/codex-reset
+CodexReset 专注 Windows 上的对话续作，后台检测可用额度，账号切换由外部工具负责。
 
-- [x] Resolve CODEX_HOME and local Codex databases
-- [x] Detect usageLimitExceeded conversations
-- [x] Browse non-archived, non-subagent conversations
-- [x] Preserve meaningful original title after automatic Continue turns
-- [x] Query account/rateLimits/read
-- [x] Detect limited -> recovered transition
-- [x] Explicit selected-conversation persistence
-- [x] thread/resume + turn/start continuation
-- [x] turn completion polling + thread/unsubscribe
-- [x] CLI doctor/status/threads/paused/continue
-- [x] Windows tray app
-- [x] Windows 主窗口：启动显示、关闭收起、托盘重新打开
-- [x] 对话列表：标题、最后对话时间和状态三列，按项目分组
-- [x] 30-second polling
-- [x] 5-hour usage/reset display
-- [x] Deep-link to Codex thread
-- [x] Windows sign-in registration primitive
-- [x] 已在本机安装的 Codex 中验证 Windows app-server 启动和用量读取
-- [x] Confirm CI build/test artifact on GitHub Actions
-- [x] 主窗口显示每周用量和恢复倒计时
-- [ ] Reset-history UI
-- [x] 主窗口显示账户计划和点数余额
-- [ ] Fully verified UI Automation text-entry fallback
+- [x] 读取 CODEX_HOME 和本地对话记录。
+- [x] 展示未归档、非子代理对话，按项目分组并支持搜索和选择保存。
+- [x] 只将最新一轮因 `usageLimitExceeded` 失败的对话列为待恢复。
+- [x] 每 30 秒检查已选中断对话；每条发送前核对可用额度、实时选择、自动开关和最新失败轮次。
+- [x] 优先采用后台明确的使用许可，兼容旧版额度窗口；额度耗尽、未知或读取失败时暂停自动发送。
+- [x] 每次检查重新读取账号；本地登录凭据或路由配置变化后重连后台，丢弃变化期间的旧额度结果。
+- [x] 账号返回的工作区与额度账号不一致时暂停自动发送；已有续作执行结束后才因登录变化重连。
+- [x] 手动续作、明确失败后重试、同一失败轮次成功提交后不重复发送。
+- [x] 自动续作后仍因限额失败时，等待账号变化或下一次确认额度恢复；未知额度不视作新的恢复事件。
+- [x] `thread/resume`、`turn/start` 和桌面持久队列续作。
+- [x] 回执超时继续核对原请求；桌面唤醒失败仅重试唤醒。
+- [x] 每条对话独立超时；断线后清理坏连接并重新连接。
+- [x] 对话深链接、可见主窗口、托盘收起和重新打开。
+- [x] CLI：`doctor`、`threads`、`paused`、`continue`。
 
-2026-10-08 本机验证通过：15 项核心测试、发布程序可见窗口检查、对话筛选与选择保存、四档布局缩放、真实对话标题与项目名称读取、窗口收起与重新显示、真实 Codex 连接、30 秒刷新，以及退出时释放本程序启动的 app-server。
+界面不显示账号、套餐、点数余额、用量百分比或额度恢复倒计时。后台通过 `account/rateLimits/read` 检查额度，不提供额度接口的路由后台会暂停自动发送；手动续作仍可使用。
 
-真实对话续作链路和额度恢复后的自动续作仍需单独验证。未勾选的界面功能也需要继续对齐。
+验证使用隔离 SQLite 和模拟 RPC 后台运行真实生产窗口；真实账号额度恢复和具体外部路由软件切号尚未进行端到端验证。
