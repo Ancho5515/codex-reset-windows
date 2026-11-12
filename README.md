@@ -15,11 +15,13 @@ Codex Desktop 的 Windows 对话续作工具，基于 [boyso/codex-reset](https:
 
 运行环境：Windows 10 / 11 x64，已安装 Codex 并登录账号。
 
-下载本仓库源码，安装 .NET 8 SDK，然后在仓库根目录执行：
+下载本仓库源码，在仓库根目录执行以下命令。
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
+
+脚本优先使用 `DEVTOOLS_ROOT` 下的 `dotnet-10.0.403-x64`。当前进程没有设置该变量时，读取 Windows 用户级同名变量。共享目录不可用时，查找 `PATH` 中 10.0.403 或更新的 .NET 10 x64 SDK，其次复用项目的 `artifacts/toolchain/dotnet-10.0.403-x64`。首次缺少可用 SDK 时，脚本从微软下载固定版 ZIP，验证 SHA512 后安装并清理 ZIP。程序仍以 .NET 8 为目标框架。
 
 生成后，双击 `publish\app\CodexReset.App.exe` 即可运行，无需额外安装 .NET Runtime。
 
